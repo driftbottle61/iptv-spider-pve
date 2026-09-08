@@ -1,0 +1,39 @@
+# install-dhcp.sh answers（shell KEY=value 格式）
+# 复制为 install-dhcp.conf 后填写；含 IPTV 账号凭据，请勿提交到 Git。
+
+# ---- 应用 ----
+APP_DIR=/opt/sh-iptv-spider
+PORT=8888
+LAN_IP=192.168.100.92            # 本机管理网 IP（用于 xml_url 等；eth0 由 PVE net0 配置）
+
+# ---- 专网接口 ----
+ETH1_IF=eth1
+# 可选：续用原租约 IP。必须是 --eth1-mac 对应 DUID 的转义内容，如：
+# DHCP_DUID='\000\001\000\00122\271E\274$\021\207\2672'
+DHCP_DUID=
+
+# ---- 机顶盒/账号认证参数（uid/mac/sn/type/auth_host 为必需）----
+STB_UID=
+STB_MAC=
+STB_SN=
+STB_TYPE=B860A
+STB_AUTH_HOST=222.68.208.73:7001
+STB_PLANE_A_IP=
+STB_PLANE_B_GATEWAY=
+
+# ---- 直播与回放 ----
+SOURCE_M3U=
+UDPXY=192.168.100.51:4022
+CATCHUP_DAYS=7
+RELAY_CLIENTS=
+
+# ---- 数据库（仅支持本机 127.0.0.1 时自动建库建用户）----
+MYSQL_HOST=127.0.0.1
+MYSQL_DB=iptv
+MYSQL_USER=iptv
+MYSQL_PASSWORD=
+
+# ---- 发行包来源：auto=脚本同目录有完整发行包则用本地，否则 GitHub ----
+INSTALL_SOURCE=auto
+VERSION=1.2.52
+REPOSITORY=driftbottle61/sh-iptv-manager
