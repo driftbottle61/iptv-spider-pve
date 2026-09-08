@@ -55,12 +55,14 @@ cd /root/scripts/iptv-spider-pve
 
 1. **CT 号 / 管理网 IP**：自动扫描给出空闲建议值（如 `118` /
    `192.168.100.93`），回车采用，或手工输入；冲突会提示后重新输入。
-2. **机顶盒参数获取方式**：
+2. **SSH root 登录**：默认允许 root 公钥登录；如需要密码登录，直接输入
+   root 密码，创建后会一并写入容器并启用 SSH root 密码登录。
+3. **机顶盒参数获取方式**：
    - `1) RouterOS 抓包（推荐）`：再填 RouterOS 地址/端口/用户名、登录方式
      （SSH 私钥或密码）、机顶盒物理口与抓包时长。私钥会自动推送到新 CT。
    - `2) 手工填写`：按提示输入 uid/mac/sn/type 等。
-3. 确认直播/回放参数与本机 MariaDB 密码后自动开始创建 CT、配置网络。
-4. 安装进行到抓包阶段时，**按提示断电→上电重启实体机顶盒**，等待抓包结束
+4. 确认直播/回放参数与本机 MariaDB 密码后自动开始创建 CT、配置网络。
+5. 安装进行到抓包阶段时，**按提示断电→上电重启实体机顶盒**，等待抓包结束
    自动写入 `config.yaml`。
 
 生成的参数会另存为 `/root/install-dhcp.conf` 供复用。
@@ -71,7 +73,7 @@ cd /root/scripts/iptv-spider-pve
 `STB_*`，改为填 `ROUTER_*` 连接参数）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.0/install-dhcp.conf.example \
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.1/install-dhcp.conf.example \
   -o /root/install-dhcp.conf
 vi /root/install-dhcp.conf
 chmod 600 /root/install-dhcp.conf
@@ -80,7 +82,7 @@ chmod 600 /root/install-dhcp.conf
 一键安装（会创建全新 CT 并完成全部配置）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.0/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.1/install.sh) \
   --answers /root/install-dhcp.conf \
   --vmid 118 --hostname iptv-spider \
   --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \
@@ -113,6 +115,7 @@ iptv-spider/mariadb 服务自动恢复。
 | `--storage` | `local-lvm` | CT 根目录存储 |
 | `--mem/--disk/--cores` | `2048/16/2` | 容器资源 |
 | `--ssh-pubkey <file>` | 无 | 注入 CT root 的 SSH 公钥 |
+| `--root-password <pw>` | 无 | 设置 CT root 密码并允许 SSH root 密码登录（也可在 answers 写 `ROOT_PASSWORD=`） |
 | `--routeros-key <file>` | 无 | `STB_MODE=capture` 私钥登录时推送本机 RouterOS SSH 私钥到容器 |
 | `--pkg-dir <dir>` | 无 | sh-iptv-manager 发行目录（缺省则 CT 内走 GitHub Release） |
 | `--destroy-existing` | 关 | 同 vmid 已存在时先停止并销毁（危险） |
@@ -123,6 +126,7 @@ iptv-spider/mariadb 服务自动恢复。
 见 `install-dhcp.conf.example`。核心字段：
 
 - 通用：`LAN_IP / ETH1_IF / MYSQL_PASSWORD / UDPXY / CATCHUP_DAYS ...`
+- CT root：`ROOT_PASSWORD`（可选；留空=SSH 仅公钥登录，设置后启用 root 密码登录）
 - `STB_MODE=manual`：手工填 `STB_UID / STB_MAC / STB_SN / STB_TYPE ...`
 - `STB_MODE=capture`：不需要 `STB_*`；填 `ROUTER_PRESET=1` 及
   `ROUTER_HOST / ROUTER_PORT / ROUTER_USER / ROUTER_AUTH / ROUTER_KEY`（或
@@ -151,6 +155,10 @@ pct exec 118 -- sh -c '
 - **容器内没有 RouterOS 私钥**：`STB_MODE=capture` 用私钥登录时，先在本机用
   `--routeros-key`（向导会自动）把私钥推到容器
   `/root/.ssh/id_ed25519_routeros`；或改密码登录。
+- **想用 root 密码 SSH 登录新 CT**：向导输入 root 密码，或参数化用
+  `--root-password` / answers 的 `ROOT_PASSWORD=`；脚本写入
+  `/etc/ssh/sshd_config.d/99-iptv-root.conf`（`PermitRootLogin yes`）并 `chpasswd`。
+  生产建议仍以公钥登录为主。
 - **想续用原租约 IP**：`--eth1-mac` 与 answers 的 `DHCP_DUID` 成对指定即可；
   两者来自旧机 `/var/lib/dhcp/dhclient.eth1.leases` 的 `default-duid` 与 veth MAC。
 - **apt 很慢**：CT 首次安装 MariaDB 需从 Debian 官方源下载，耐心等待即可。

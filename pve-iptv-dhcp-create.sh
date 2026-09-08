@@ -26,6 +26,8 @@
 #   --template <pve卷:vztmpl/..>  缺省自动查找 Debian 12 模板
 #   --storage local-lvm --mem 2048 --disk 16 --cores 2
 #   --ssh-pubkey <file>         注入 CT root 的 SSH 公钥（可选）
+#   --root-password <pw>        设置 CT root 密码并允许 SSH root 登录（可选；
+#                               向导里可直接输入；留空则仅公钥登录）
 #   --routeros-key <file>       STB_MODE=capture 且私钥登录时，把本机 RouterOS
 #                               SSH 私钥推送到容器 /root/.ssh/id_ed25519_routeros
 #   --pkg-dir <dir>             本地 sh-iptv-manager 发行目录；缺省 CT 内走 GitHub Release
@@ -53,6 +55,7 @@ MEM=2048
 DISK=16
 CORES=2
 SSH_PUBKEY=''
+ROOT_PASSWORD=''
 PKG_DIR=''
 DESTROY_EXISTING=0
 APPLY_LIVE=0
@@ -78,6 +81,7 @@ while [ "$#" -gt 0 ]; do
     --disk) DISK=$2; shift 2 ;;
     --cores) CORES=$2; shift 2 ;;
     --ssh-pubkey) SSH_PUBKEY=$2; shift 2 ;;
+    --root-password) ROOT_PASSWORD=$2; shift 2 ;;
     --routeros-key) ROUTER_KEY_PVE=$2; shift 2 ;;
     --pkg-dir) PKG_DIR=$2; shift 2 ;;
     --bootstrap) BOOTSTRAP=$2; shift 2 ;;
@@ -209,6 +213,8 @@ wizard_make_answers() {
   resolve_vmid
   resolve_mgmt_ip
   HOSTNAME=$(ask '容器主机名' "$HOSTNAME")
+  echo 'SSH root 登录（默认已允许 root 公钥登录；如需密码登录请设置密码）：'
+  ROOT_PASSWORD=$(ask_secret 'CT root 密码（留空=不设置，仅公钥登录）')
   echo
   echo '机顶盒认证参数获取方式：'
   echo '  1) RouterOS 抓包（推荐：全新安装除专网 IP 外都自动抓取填入）'
@@ -273,6 +279,7 @@ wizard_make_answers() {
     fi
     printf "SOURCE_M3U=\nUDPXY='%s'\nCATCHUP_DAYS=%s\nRELAY_CLIENTS=\n" "$udpxy" "$CATCHUP_DAYS"
     printf "MYSQL_HOST=127.0.0.1\nMYSQL_DB=iptv\nMYSQL_USER=iptv\nMYSQL_PASSWORD=%q\n" "$dbpass"
+    printf "ROOT_PASSWORD=%q\n" "$ROOT_PASSWORD"
     printf "INSTALL_SOURCE=auto\nVERSION=1.2.52\nREPOSITORY=driftbottle61/sh-iptv-manager\n"
   } > "$wanswer"
   chmod 600 "$wanswer"
@@ -297,6 +304,11 @@ if [ -z "$ANSWERS" ]; then
   fi
 fi
 [ -f "$ANSWERS" ] || { echo "找不到 answers 文件：$ANSWERS" >&2; exit 1; }
+
+# root 密码可从 answers（ROOT_PASSWORD=）读取，命令行/向导优先
+if [ -z "$ROOT_PASSWORD" ]; then
+  ROOT_PASSWORD=$( ( set +u; . "$ANSWERS" >/dev/null 2>&1; printf '%s' "${ROOT_PASSWORD:-}" ) )
+fi
 
 BOOTSTRAP=${BOOTSTRAP:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/install-dhcp.sh}
 [ -f "$BOOTSTRAP" ] || { echo "找不到 bootstrap：$BOOTSTRAP" >&2; exit 1; }
@@ -409,6 +421,18 @@ if [ -n "$SSH_PUBKEY" ] && [ -f "$SSH_PUBKEY" ]; then
   pct exec "$VMID" -- sh -c 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && grep -qxF "$(cat /tmp/iptv-key.pub)" /root/.ssh/authorized_keys 2>/dev/null || cat /tmp/iptv-key.pub >> /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys 2>/dev/null; rm -f /tmp/iptv-key.pub'
   ok "已注入 SSH 公钥：$SSH_PUBKEY"
 fi
+
+# 允许 SSH root 登录；设置了 root 密码则一并写入容器（密码登录）
+set_root_login() {
+  pct exec "$VMID" -- sh -c 'install -d -m 0755 /etc/ssh/sshd_config.d 2>/dev/null || mkdir -p /etc/ssh/sshd_config.d; printf "PermitRootLogin yes\nPasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/99-iptv-root.conf; systemctl try-restart sshd >/dev/null 2>&1 || service ssh restart >/dev/null 2>&1 || true'
+  if [ -n "$ROOT_PASSWORD" ]; then
+    printf '%s\n' "root:$ROOT_PASSWORD" | pct exec "$VMID" -- chpasswd
+    ok '已设置 root 密码并允许 SSH root 登录（密码/公钥均可）'
+  else
+    ok '已允许 SSH root 登录（公钥方式；未设置密码）'
+  fi
+}
+set_root_login
 
 # STB_MODE=capture + 私钥登录：把本机 RouterOS SSH 私钥推送到容器内供抓包使用
 push_routeros_key() {

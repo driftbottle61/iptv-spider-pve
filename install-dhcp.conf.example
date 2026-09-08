@@ -6,6 +6,10 @@ APP_DIR=/opt/sh-iptv-spider
 PORT=8888
 LAN_IP=192.168.100.92            # 本机管理网 IP（用于 xml_url 等；eth0 由 PVE net0 配置）
 
+# ---- CT root SSH（可选，由 pve-iptv-dhcp-create.sh 创建容器时应用）----
+# 留空=不设置密码，SSH 仅公钥登录；设置后允许 SSH root 密码登录
+ROOT_PASSWORD=
+
 # ---- 专网接口 ----
 ETH1_IF=eth1
 # 可选：续用原租约 IP。必须是 --eth1-mac 对应 DUID 的转义内容，如：
