@@ -492,4 +492,6 @@ fi
 echo
 log "完成：容器 $VMID（$HOSTNAME，$MGMT_IP）"
 pct exec "$VMID" -- ip -4 -o addr show eth1 | sed 's/^/  /'
+echo "  TiviMate：http://$MGMT_IP:8888/tv.m3u"
+echo "  IPTV#：http://$MGMT_IP:8888/iptvsharp.m3u"
 echo '常用命令：pct exec '$VMID' -- bash  或  ssh root@'$MGMT_IP

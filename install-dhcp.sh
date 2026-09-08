@@ -554,6 +554,14 @@ ok 'iptv-spider 运行中'
 wait_epg || true
 verify_paths
 
+# 播放器 M3U 链接（udpxy 有配置时带上参数；留空则用服务内置默认 192.168.100.51:4022）
+m3u_tivimate="http://$LAN_IP:$PORT/tv.m3u"
+m3u_iptvsharp="http://$LAN_IP:$PORT/iptvsharp.m3u"
+if [ -n "$UDPXY" ]; then
+  m3u_tivimate="$m3u_tivimate?udpxy=$UDPXY"
+  m3u_iptvsharp="$m3u_iptvsharp?udpxy=$UDPXY"
+fi
+
 cat <<EOF
 
 ================ 安装完成 ================
@@ -562,5 +570,7 @@ cat <<EOF
   专网路由：${IPTV_NETS// /, } via 租约网关（随租约自动维护）
   管理：iptv-spider / iptv-spider-status
   EPG：http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS
+  TiviMate：$m3u_tivimate
+  IPTV#：$m3u_iptvsharp
 ==========================================
 EOF
