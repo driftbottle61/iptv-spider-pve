@@ -1,27 +1,36 @@
 #!/usr/bin/env bash
 # pve-iptv-dhcp-create.sh - 一键创建全新 IPTV CT 并完成 DHCP-direct 安装
 #
-# 在 Proxmox VE 主机以 root 运行。流程：
-#   0. 参数校验
+# 在 Proxmox VE 主机以 root 运行。两种用法：
+#   A. 交互向导（推荐）：不带 --answers 直接运行，自动扫描空闲 CT 号/管理 IP
+#      作为默认值，可回车采用或手工输入；输入冲突会提示后重新输入；并引导
+#      选择"机顶盒抓包 / 手工填写"生成安装参数文件（向导抓包模式还会询问
+#      RouterOS 连接参数，并把私钥推送到容器内供自动抓包使用）。
+#   B. 参数化（脚本化）：--answers/--vmid/--mgmt-ip ... 全部显式给出，不交互。
+#
+# 流程：
+#   0. 参数与向导（CT 号/IP 冲突校验）
 #   1. PVE 侧：持久化 IPTV VLAN 桥（写 /etc/network/interfaces.d，可选运行态补建）
 #   2. pct create 全新 Debian12 CT（eth0=管理网静态 / eth1=IPTV 桥、不带 ip=、固定 MAC）
-#   3. 注入 SSH 公钥、上传发行包与参数文件
-#   4. 在 CT 内执行 install-dhcp.sh（网络 + 应用 + 数据库 + 验证）
+#   3. 注入 SSH 公钥、上传参数文件与发行包
+#   4. 在 CT 内执行 install-dhcp.sh（网络 + 抓包/手工机顶盒参数 + 应用 + 数据库 + 验证）
 #
-# 常用参数（均为可选，另有默认值）：
-#   --answers <file>            必填：install-dhcp.sh 的 answers 文件（shell KEY=value）
-#   --vmid 114                  容器 ID（默认 114）
+# 常用参数（方式 B）：
+#   --answers <file>            安装参数文件（shell KEY=value；缺省走交互向导）
+#   --vmid <n>                  容器 ID（缺省扫描空闲建议值，冲突可重输）
 #   --hostname iptv-spider
 #   --mgmt-bridge vmbr0 --mgmt-gw 192.168.100.1
-#   --mgmt-ip 192.168.100.92    管理网 IP（默认从 answers 的 LAN_IP 取）
+#   --mgmt-ip <ip>              管理网 IP（缺省取 answers 的 LAN_IP，再自动扫描建议值）
 #   --iptv-bridge vmbr0v85 --iptv-uplink nic1 --iptv-vlan 85
-#   --eth1-mac BC:24:11:87:B7:32  固定 MAC；设置了 DHCP_DUID 时必须与之一致
-#   --template local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst
+#   --eth1-mac <mac>            固定 MAC；与 answers 的 DHCP_DUID 必须成对（续租约）
+#   --template <pve卷:vztmpl/..>  缺省自动查找 Debian 12 模板
 #   --storage local-lvm --mem 2048 --disk 16 --cores 2
-#   --ssh-pubkey <pubkey-file>  注入 CT root 的 SSH 公钥（可选）
-#   --pkg-dir <dir>             本地发行包目录；不传则 CT 内走 GitHub Release
-#   --bootstrap <install-dhcp.sh 路径>  默认与本脚本同目录
-#   --destroy-existing          存在同 vmid 时先停止并销毁（危险，需显式指定）
+#   --ssh-pubkey <file>         注入 CT root 的 SSH 公钥（可选）
+#   --routeros-key <file>       STB_MODE=capture 且私钥登录时，把本机 RouterOS
+#                               SSH 私钥推送到容器 /root/.ssh/id_ed25519_routeros
+#   --pkg-dir <dir>             本地 sh-iptv-manager 发行目录；缺省 CT 内走 GitHub Release
+#   --bootstrap <install-dhcp.sh>  缺省与本脚本同目录
+#   --destroy-existing          同 vmid 已存在时先停止并销毁（危险）
 #   --apply-live                桥不存在时执行运行态补建（一般只需持久化）
 set -euo pipefail
 
@@ -29,10 +38,10 @@ set -euo pipefail
 command -v pct >/dev/null 2>&1 || { echo '未检测到 pct，此脚本必须运行在 Proxmox VE 主机。' >&2; exit 1; }
 
 ANSWERS=''
-VMID=114
-HOSTNAME=iptv-spider
+VMID=''
+HOSTNAME=''
 MGMT_BRIDGE=vmbr0
-MGMT_GW=192.168.100.1
+MGMT_GW=''
 MGMT_IP=''
 IPTV_BRIDGE=vmbr0v85
 IPTV_UPLINK=nic1
@@ -48,6 +57,8 @@ PKG_DIR=''
 DESTROY_EXISTING=0
 APPLY_LIVE=0
 BOOTSTRAP=''
+STB_MODE=''
+ROUTER_KEY_PVE=''
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -67,16 +78,226 @@ while [ "$#" -gt 0 ]; do
     --disk) DISK=$2; shift 2 ;;
     --cores) CORES=$2; shift 2 ;;
     --ssh-pubkey) SSH_PUBKEY=$2; shift 2 ;;
+    --routeros-key) ROUTER_KEY_PVE=$2; shift 2 ;;
     --pkg-dir) PKG_DIR=$2; shift 2 ;;
     --bootstrap) BOOTSTRAP=$2; shift 2 ;;
     --destroy-existing) DESTROY_EXISTING=1; shift ;;
     --apply-live) APPLY_LIVE=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 1 ;;
   esac
 done
 
-[ -n "$ANSWERS" ] && [ -f "$ANSWERS" ] || { echo '缺少 --answers <file> 或文件不可读。' >&2; exit 1; }
+HOSTNAME=${HOSTNAME:-iptv-spider}
+MGMT_GW=${MGMT_GW:-192.168.100.1}
+
+valid_ipv4() {
+  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  local p
+  IFS=. read -r -a p <<< "$1"
+  for part in "${p[@]}"; do
+    [ "$part" -ge 0 ] && [ "$part" -le 255 ] || return 1
+  done
+}
+is_tty() { [ -t 0 ]; }
+ask() {
+  local p=$1 d=${2-} v
+  printf '%s' "$p" >&2
+  [ -n "$d" ] && printf ' [%s]' "$d" >&2
+  printf '：' >&2
+  IFS= read -r v || v=''
+  printf '%s' "${v:-$d}"
+}
+ask_secret() {
+  local p=$1 v
+  printf '%s' "$p" >&2
+  IFS= read -rs v || v=''
+  printf '\n' >&2
+  printf '%s' "$v"
+}
+gen_password() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16 || true; }
+
+# ------------------------------------------------------------- 扫描/校验 -----
+is_ct_taken() { pct config "$1" >/dev/null 2>&1 || qm config "$1" >/dev/null 2>&1; }
+next_free_vmid() {
+  local n=${1:-100}
+  while is_ct_taken "$n"; do n=$((n + 1)); done
+  echo "$n"
+}
+
+# 占用检查：ping / neigh / 各 CT-VM 配置里已用的管理 IP
+is_ip_taken() {
+  local ip=$1 ignore=${2:-} c
+  ping -c1 -W1 "$ip" >/dev/null 2>&1 && return 0
+  ip neigh show "$ip" 2>/dev/null | grep -Eqi '\b(REACHABLE|STALE|DELAY|PROBE)\b' && return 0
+  for c in $(pct list 2>/dev/null | awk 'NR>1{print $1}'); do
+    [ -n "$ignore" ] && [ "$c" = "$ignore" ] && continue
+    pct config "$c" 2>/dev/null | grep -Eq "net[0-9]+: .*ip=$ip/" && return 0
+  done
+  for c in $(qm list 2>/dev/null | awk 'NR>1{print $1}'); do
+    [ -n "$ignore" ] && [ "$c" = "$ignore" ] && continue
+    qm config "$c" 2>/dev/null | grep -Eq "ipconfig[0-9]+: .*ip=$ip/" && return 0
+  done
+  return 1
+}
+next_free_ip() {
+  local base=$1 start=${2:-90} n ip
+  for ((n = start; n < 255; n++)); do
+    ip="$base.$n"
+    is_ip_taken "$ip" || { echo "$ip"; return 0; }
+  done
+  return 1
+}
+
+resolve_vmid() {
+  while :; do
+    if [ -z "$VMID" ]; then
+      if is_tty; then
+        VMID=$(ask '容器 CT 号' "$(next_free_vmid 100)")
+      else
+        echo '缺少 --vmid，且无交互终端。' >&2
+        exit 1
+      fi
+      continue
+    fi
+    [[ "$VMID" =~ ^[0-9]+$ ]] || { echo "CT 号必须是数字：$VMID" >&2; VMID=''; continue; }
+    if is_ct_taken "$VMID"; then
+      if [ "$DESTROY_EXISTING" -eq 1 ]; then
+        return 0
+      fi
+      echo "CT/VM 号 $VMID 已被占用，请换一个（加 --destroy-existing 可覆盖）。" >&2
+      VMID=''
+      is_tty || exit 1
+      continue
+    fi
+    return 0
+  done
+}
+
+resolve_mgmt_ip() {
+  if [ -z "$MGMT_IP" ] && [ -n "$ANSWERS" ] && [ -f "$ANSWERS" ]; then
+    MGMT_IP=$(sed -n 's/^LAN_IP=\(.*\)$/\1/p' "$ANSWERS" | tail -n1)
+  fi
+  while :; do
+    if [ -z "$MGMT_IP" ]; then
+      if is_tty; then
+        local base sug
+        base=$(printf '%s' "$MGMT_GW" | cut -d. -f1-3)
+        sug=$(next_free_ip "$base" 90 || true)
+        MGMT_IP=$(ask '容器管理网 IP' "${sug:-}")
+      else
+        echo '缺少管理网 IP（--mgmt-ip 或 answers 的 LAN_IP），且无交互终端。' >&2
+        exit 1
+      fi
+      continue
+    fi
+    valid_ipv4 "$MGMT_IP" || { echo "管理网 IP 无效：$MGMT_IP" >&2; MGMT_IP=''; continue; }
+    if is_ip_taken "$MGMT_IP" "$VMID"; then
+      echo "管理网 IP $MGMT_IP 已被占用（ping/邻居/现有 CT-VM 配置），请换一个。" >&2
+      MGMT_IP=''
+      is_tty || exit 1
+      continue
+    fi
+    return 0
+  done
+}
+
+# ------------------------------------------------ 交互向导（生成 answers）----
+wizard_make_answers() {
+  local wanswer d mode udpxy dbpass ans auth_mode
+  log '=== 交互安装向导 ==='
+  resolve_vmid
+  resolve_mgmt_ip
+  HOSTNAME=$(ask '容器主机名' "$HOSTNAME")
+  echo
+  echo '机顶盒认证参数获取方式：'
+  echo '  1) RouterOS 抓包（推荐：全新安装除专网 IP 外都自动抓取填入）'
+  echo '  2) 手工填写'
+  mode=$(ask '请选择' '1')
+  case "$mode" in
+    2|[Mm]*)
+      STB_MODE=manual
+      STB_UID=$(ask 'IPTV 账号 UID')
+      STB_MAC=$(ask '机顶盒 MAC')
+      STB_SN=$(ask '机顶盒 SN')
+      STB_TYPE=$(ask '机顶盒型号' 'B860A')
+      STB_PLANE_A_IP=$(ask 'A 面/LAN 地址（可留空）' '')
+      STB_PLANE_B_GATEWAY=$(ask 'B 面网关（可留空）' '')
+      ;;
+    *)
+      STB_MODE=capture
+      ROUTER_PASSWORD=''
+      echo
+      echo 'RouterOS 抓包连接参数（在实体机顶盒上自动抓取 UID/MAC/SN/type 等）：'
+      ROUTER_HOST=$(ask 'RouterOS 地址' '192.168.100.1')
+      ROUTER_PORT=$(ask 'RouterOS SSH 端口' '1314')
+      ROUTER_USER=$(ask 'RouterOS SSH 用户名' 'david_ni')
+      auth_mode=$(ask 'RouterOS 登录：1=SSH 私钥（推荐） 2=用户名密码' '1')
+      if [ "$auth_mode" = 2 ]; then
+        ROUTER_AUTH=password
+        ROUTER_PASSWORD=$(ask_secret 'RouterOS SSH 密码')
+        ROUTER_KEY=''
+        ROUTER_KEY_PVE=''
+      else
+        ROUTER_KEY_PVE=$(ask 'RouterOS 私钥（本机路径，留空改用密码）' '/root/.ssh/id_ed25519_bastion')
+        if [ -z "$ROUTER_KEY_PVE" ] || [ ! -f "$ROUTER_KEY_PVE" ]; then
+          echo '私钥文件不可用，改用用户名密码登录。' >&2
+          ROUTER_AUTH=password
+          ROUTER_PASSWORD=$(ask_secret 'RouterOS SSH 密码')
+          ROUTER_KEY=''
+          ROUTER_KEY_PVE=''
+        else
+          ROUTER_AUTH=key
+          ROUTER_KEY=/root/.ssh/id_ed25519_routeros
+        fi
+      fi
+      ROUTER_IFACE=$(ask '连接实体机顶盒的 RouterOS 物理端口' 'ether3_lan')
+      CAPTURE_SECONDS=$(ask '抓包时长（秒）' '120')
+      ;;
+  esac
+  echo '直播/回放相关（可留空，之后可改 /opt/sh-iptv-spider/config.yaml）'
+  udpxy=$(ask 'udpxy/msd_lite 直播转换地址，如 192.168.100.51:4022（可留空）' '')
+  CATCHUP_DAYS=$(ask '回放天数' '7')
+  dbpass=$(ask_secret '本机 MariaDB 密码（留空自动生成）')
+  [ -n "$dbpass" ] || dbpass=$(gen_password)
+  wanswer=$(mktemp /tmp/iptv-answers.XXXXXX)
+  {
+    printf "APP_DIR=/opt/sh-iptv-spider\nPORT=8888\nLAN_IP=%s\nETH1_IF=eth1\n" "$MGMT_IP"
+    if [ "$STB_MODE" = manual ]; then
+      printf "STB_MODE=manual\nSTB_UID=%q\nSTB_MAC=%q\nSTB_SN=%q\nSTB_TYPE=%q\nSTB_AUTH_HOST='222.68.208.73:7001'\nSTB_PLANE_A_IP=%q\nSTB_PLANE_B_GATEWAY=%q\n" \
+        "$STB_UID" "$STB_MAC" "$STB_SN" "$STB_TYPE" "$STB_PLANE_A_IP" "$STB_PLANE_B_GATEWAY"
+    else
+      printf "STB_MODE=capture\nROUTER_PRESET=1\nSTB_AUTH_HOST='222.68.208.73:7001'\n"
+      printf "ROUTER_HOST=%q\nROUTER_PORT=%q\nROUTER_USER=%q\nROUTER_AUTH=%s\nROUTER_KEY=%q\nROUTER_PASSWORD=%q\nROUTER_IFACE=%q\nCAPTURE_SECONDS=%s\n" \
+        "$ROUTER_HOST" "$ROUTER_PORT" "$ROUTER_USER" "$ROUTER_AUTH" "$ROUTER_KEY" "$ROUTER_PASSWORD" "$ROUTER_IFACE" "$CAPTURE_SECONDS"
+    fi
+    printf "SOURCE_M3U=\nUDPXY='%s'\nCATCHUP_DAYS=%s\nRELAY_CLIENTS=\n" "$udpxy" "$CATCHUP_DAYS"
+    printf "MYSQL_HOST=127.0.0.1\nMYSQL_DB=iptv\nMYSQL_USER=iptv\nMYSQL_PASSWORD=%q\n" "$dbpass"
+    printf "INSTALL_SOURCE=auto\nVERSION=1.2.52\nREPOSITORY=driftbottle61/sh-iptv-manager\n"
+  } > "$wanswer"
+  chmod 600 "$wanswer"
+  ANSWERS_TMP=$wanswer
+  ANSWERS=$wanswer
+  trap 'rm -f "$ANSWERS_TMP"' EXIT
+  ok "已生成安装参数：$wanswer（STB 获取方式=$STB_MODE）"
+  ok '安装开始后参数会另存一份到 /root/install-dhcp.conf 供复用'
+  echo
+}
+
+log() { printf '\n==> %s\n' "$*"; }
+ok()  { printf '    %s\n' "$*"; }
+
+# ------------------------------------------------------------- 参数就绪 -----
+if [ -z "$ANSWERS" ]; then
+  if is_tty; then
+    wizard_make_answers
+  else
+    echo '非交互运行必须提供 --answers <file>。' >&2
+    exit 1
+  fi
+fi
+[ -f "$ANSWERS" ] || { echo "找不到 answers 文件：$ANSWERS" >&2; exit 1; }
+
 BOOTSTRAP=${BOOTSTRAP:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/install-dhcp.sh}
 [ -f "$BOOTSTRAP" ] || { echo "找不到 bootstrap：$BOOTSTRAP" >&2; exit 1; }
 
@@ -90,24 +311,13 @@ if grep -q '^DHCP_DUID=' "$ANSWERS" && [ -z "$ETH1_MAC" ]; then
   exit 1
 fi
 
-# 管理网 IP 默认取 answers 的 LAN_IP
-[ -n "$MGMT_IP" ] || MGMT_IP=$(sed -n 's/^LAN_IP=\(.*\)$/\1/p' "$ANSWERS" | tail -n1)
-[ -n "$MGMT_IP" ] || { echo '未提供管理网 IP（--mgmt-ip 或 answers 的 LAN_IP）。' >&2; exit 1; }
-
-valid_ipv4() {
-  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
-  local p
-  IFS=. read -r -a p <<< "$1"
-  for part in "${p[@]}"; do
-    [ "$part" -ge 0 ] && [ "$part" -le 255 ] || return 1
-  done
-}
-valid_ipv4 "$MGMT_IP" || { echo "管理网 IP 无效：$MGMT_IP" >&2; exit 1; }
+resolve_vmid
+resolve_mgmt_ip
 
 # 随机 PVE 风格 MAC（BC:24:11 前缀），或使用用户指定值
 if [ -z "$ETH1_MAC" ]; then
   ETH1_MAC=$(printf 'BC:24:11:%02X:%02X:%02X' $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
-  echo "未指定 --eth1-mac，随机生成：$ETH1_MAC"
+  ok "未指定 --eth1-mac，随机生成：$ETH1_MAC（续租约需固定 MAC + DUID）"
 fi
 
 if [ -z "$TEMPLATE" ]; then
@@ -115,9 +325,6 @@ if [ -z "$TEMPLATE" ]; then
   [ -n "$TEMPLATE" ] || { echo '未找到 Debian 12 模板，请用 --template 指定。' >&2; exit 1; }
   TEMPLATE="local:vztmpl/$TEMPLATE"
 fi
-
-log() { printf '\n==> %s\n' "$*"; }
-ok()  { printf '    %s\n' "$*"; }
 
 # ------------------------------------------------------------ bridge 持久化 ---
 persist_bridge() {
@@ -164,9 +371,6 @@ if pct config "$VMID" >/dev/null 2>&1; then
     log "销毁现有容器 $VMID（--destroy-existing）"
     pct stop "$VMID" >/dev/null 2>&1 || true
     pct destroy "$VMID"
-  else
-    echo "容器 $VMID 已存在；如需替换请加 --destroy-existing。" >&2
-    exit 1
   fi
 fi
 
@@ -206,9 +410,33 @@ if [ -n "$SSH_PUBKEY" ] && [ -f "$SSH_PUBKEY" ]; then
   ok "已注入 SSH 公钥：$SSH_PUBKEY"
 fi
 
+# STB_MODE=capture + 私钥登录：把本机 RouterOS SSH 私钥推送到容器内供抓包使用
+push_routeros_key() {
+  local stb_mode auth key
+  stb_mode=$(sed -n 's/^STB_MODE=\(.*\)$/\1/p' "$ANSWERS" | tail -n1 | tr -d "'\"")
+  [ "$stb_mode" = capture ] || return 0
+  auth=$(sed -n 's/^ROUTER_AUTH=\(.*\)$/\1/p' "$ANSWERS" | tail -n1 | tr -d "'\"")
+  [ "$auth" = key ] || return 0
+  key=${ROUTER_KEY_PVE:-}
+  if [ -z "$key" ] || [ ! -f "$key" ]; then
+    ok '提示：抓包采用 RouterOS 私钥登录，但未找到可推送的本机私钥（--routeros-key）；请在容器内准备好 ROUTER_KEY。'
+    return 0
+  fi
+  pct exec "$VMID" -- sh -c 'mkdir -p /root/.ssh && chmod 700 /root/.ssh'
+  pct push "$VMID" "$key" /root/.ssh/id_ed25519_routeros >/dev/null 2>&1 || { echo '推送 RouterOS 私钥到容器失败。' >&2; exit 1; }
+  pct exec "$VMID" -- sh -c 'chmod 600 /root/.ssh/id_ed25519_routeros'
+  ok "已推送 RouterOS SSH 私钥到容器：$key -> /root/.ssh/id_ed25519_routeros"
+}
+push_routeros_key
+
 # 上传 answers 与 bootstrap
 work=$(mktemp -d /tmp/iptv-dhcp-work.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; [ -n "${ANSWERS_TMP:-}" ] && rm -f "$ANSWERS_TMP"' EXIT
+if [ -n "${ANSWERS_TMP:-}" ]; then
+  cp "$ANSWERS_TMP" /root/install-dhcp.conf
+  chmod 600 /root/install-dhcp.conf
+  ANSWERS=/root/install-dhcp.conf
+fi
 cp "$ANSWERS" "$work/install-dhcp.conf"
 chmod 600 "$work/install-dhcp.conf"
 pct push "$VMID" "$work/install-dhcp.conf" /root/install-dhcp.conf >/dev/null

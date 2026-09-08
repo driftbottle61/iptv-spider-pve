@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# install-dhcp.sh - IPTV Spider "DHCP-direct" node bootstrap (non-interactive)
+# install-dhcp.sh - IPTV Spider "DHCP-direct" node bootstrap
 #
 # 在全新 Debian 12 CT 内以 root 运行，一次完成：
 #   1. eth1 改为 DHCP（专网租约，含 PVE veth 固定 MAC 约定）
 #   2. dhclient hooks：拦默认路由/DNS 改写，并按"租约网关"维护 IPTV 专网路由
 #   3. 可选：预置 DUID（配合固定 MAC 可续用原租约 IP）
 #   4. 安装 /opt/sh-iptv-spider 应用（本地发行目录或 GitHub Release）
-#   5. 本地 MariaDB + config.yaml（stb.ip 自动写为当前租约 IP）
-#   6. 服务启动 + 首次 EPG 抓取统计 + 直连路径验证
+#   5. 机顶盒认证参数：STB_MODE=manual 用 answers 中的 STB_*；
+#      STB_MODE=capture 时经 RouterOS 抓包自动获取（交互：需重启实体机顶盒），
+#      失败可降级为手工填写；专网 IP 由 eth1 DHCP 租约提供，无需抓包
+#   6. 本地 MariaDB + config.yaml（stb.ip 自动写为当前租约 IP）
+#   7. 服务启动 + 首次 EPG 抓取统计 + 直连路径验证
 #
 # 用法：
 #   bash install-dhcp.sh <answers.conf>
@@ -15,6 +18,8 @@
 # answers.conf 为 shell 格式 KEY=value（见 install-dhcp.conf.example）。
 # 本脚本可从安装目录直接运行（自动使用同目录发行包），也可通过
 # INSTALL_SOURCE=github 从 GitHub Release 下载同版本发行包。
+# STB_MODE=capture 时建议由 pve-iptv-dhcp-create.sh 在交互终端中执行本脚本
+# （RouterOS 抓包需要输入并等待重启实体机顶盒）。
 set -euo pipefail
 
 ANSWERS_FILE=${1:-/root/install-dhcp.conf}
@@ -39,10 +44,20 @@ RELAY_CLIENTS=${RELAY_CLIENTS:-}
 STB_UID=${STB_UID:-}
 STB_MAC=${STB_MAC:-}
 STB_SN=${STB_SN:-}
-STB_TYPE=${STB_TYPE:-}
+STB_TYPE=${STB_TYPE:-B860A}
 STB_AUTH_HOST=${STB_AUTH_HOST:-222.68.208.73:7001}
 STB_PLANE_A_IP=${STB_PLANE_A_IP:-}
 STB_PLANE_B_GATEWAY=${STB_PLANE_B_GATEWAY:-}
+STB_MODE=${STB_MODE:-manual}
+ROUTER_PRESET=${ROUTER_PRESET:-0}
+ROUTER_HOST=${ROUTER_HOST:-192.168.100.1}
+ROUTER_PORT=${ROUTER_PORT:-1314}
+ROUTER_USER=${ROUTER_USER:-david_ni}
+ROUTER_AUTH=${ROUTER_AUTH:-key}
+ROUTER_KEY=${ROUTER_KEY:-/root/.ssh/id_ed25519_routeros}
+ROUTER_PASSWORD=${ROUTER_PASSWORD:-}
+ROUTER_IFACE=${ROUTER_IFACE:-ether3_lan}
+CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
 VERSION=${VERSION:-1.2.52}
@@ -54,7 +69,11 @@ IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
 . "$ANSWERS_FILE"
 
 [ "$(id -u)" -eq 0 ] || { echo '请以 root 运行。' >&2; exit 1; }
-for key in LAN_IP STB_UID STB_MAC STB_SN STB_TYPE MYSQL_PASSWORD; do
+required_keys='LAN_IP MYSQL_PASSWORD'
+if [ "$STB_MODE" != capture ]; then
+  required_keys="$required_keys STB_UID STB_MAC STB_SN"
+fi
+for key in $required_keys; do
   if [ -z "${!key:-}" ]; then
     echo "参数文件缺少必需字段：$key" >&2
     exit 1
@@ -67,6 +86,21 @@ esac
 log()  { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    %s\n' "$*"; }
 die()  { printf '错误：%s\n' "$*" >&2; exit 1; }
+ask() {
+  local p=$1 d=${2-} v
+  printf '%s' "$p" >&2
+  [ -n "$d" ] && printf ' [%s]' "$d" >&2
+  printf '：' >&2
+  IFS= read -r v || v=''
+  printf '%s' "${v:-$d}"
+}
+ask_secret() {
+  local p=$1 v
+  printf '%s' "$p" >&2
+  read -rs v || v=''
+  printf '\n' >&2
+  printf '%s' "$v"
+}
 
 yaml_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
 sql_escape()  { printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/''/g"; }
@@ -365,6 +399,113 @@ verify_paths() {
   [ -n "$epg_code" ] && ok "EPG 218.83.188.231:8084 直连 HTTP $epg_code" || echo '警告：EPG 探测无响应'
 }
 
+# ------------------------------------------------------- STB 抓包/手工 -----
+yaml_value() {
+  sed -n "s/^[[:space:]]*${1}:[[:space:]]*\"\(.*\)\"[[:space:]]*$/\1/p" "$2" | tail -n 1
+}
+stb_probe_path() {
+  local p
+  for p in "$APP_DIR/bin/stb-probe-linux-amd64" "${PKG_DIR:-}/bin/stb-probe-linux-amd64"; do
+    [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; return 0; }
+  done
+  return 1
+}
+
+collect_stb_capture() {
+  local probe output capture_ok ans
+  probe=$(stb_probe_path) || {
+    echo '未找到 stb-probe 抓包工具（发行包缺 bin/stb-probe-linux-amd64）。可用 --pkg-dir 提供本地发行目录。' >&2
+    return 1
+  }
+  if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1 || ! command -v sshpass >/dev/null 2>&1; then
+    echo '安装抓包所需组件（openssh-client / sshpass）...'
+    apt-get install -y --no-install-recommends openssh-client sshpass
+  fi
+  if [ "$ROUTER_PRESET" != 1 ]; then
+    ROUTER_HOST=$(ask 'RouterOS 地址' "$ROUTER_HOST")
+    ROUTER_PORT=$(ask 'RouterOS SSH 端口' "$ROUTER_PORT")
+    ROUTER_USER=$(ask 'RouterOS SSH 用户名' "$ROUTER_USER")
+    ans=$(ask 'RouterOS 登录：1=SSH 私钥 2=用户名密码' "$([ "$ROUTER_AUTH" = password ] && echo 2 || echo 1)")
+    if [ "$ans" = 2 ]; then
+      ROUTER_AUTH=password
+    else
+      ROUTER_AUTH=key
+    fi
+    ROUTER_IFACE=$(ask '连接实体机顶盒的 RouterOS 物理端口' "$ROUTER_IFACE")
+    CAPTURE_SECONDS=$(ask '抓包时长（秒）' "$CAPTURE_SECONDS")
+  fi
+  if [ "$ROUTER_AUTH" = password ]; then
+    if [ -z "$ROUTER_PASSWORD" ]; then
+      ROUTER_PASSWORD=$(ask_secret 'RouterOS SSH 密码')
+    fi
+    [ -n "$ROUTER_PASSWORD" ] || die 'RouterOS SSH 密码为空。'
+    export STB_PROBE_ROUTER_PASSWORD="$ROUTER_PASSWORD"
+  else
+    [ -r "$ROUTER_KEY" ] || die "RouterOS SSH 私钥不可读：$ROUTER_KEY（请在容器内放置该私钥，或改用密码登录）"
+  fi
+  while :; do
+    echo
+    echo "抓包将在 RouterOS 的机顶盒物理口上运行（${CAPTURE_SECONDS} 秒）。"
+    echo '准备：实体机顶盒已接电但处于待重启状态；开始后请立即断电再上电。'
+    printf '输入 M 后回车改为手工填写；否则直接按回车开始抓包... '
+    IFS= read -r ans || ans=''
+    case "$ans" in
+      [Mm]*) unset STB_PROBE_ROUTER_PASSWORD; return 1 ;;
+    esac
+    output=$(mktemp /tmp/stb-probe-result.XXXXXX)
+    capture_ok=0
+    echo
+    echo '抓包已开始，请现在立即重启实体机顶盒（断电→上电）。'
+    if [ "$ROUTER_AUTH" = password ]; then
+      "$probe" -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" -router-user "$ROUTER_USER" \
+        -router-password-env STB_PROBE_ROUTER_PASSWORD \
+        -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+    else
+      "$probe" -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" -router-user "$ROUTER_USER" \
+        -router-key "$ROUTER_KEY" \
+        -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+    fi
+    unset STB_PROBE_ROUTER_PASSWORD
+    echo
+    echo '检测到的机顶盒数据：'
+    echo '------------------------------------------------------------'
+    cat "$output"
+    echo '------------------------------------------------------------'
+    STB_UID=$(yaml_value uid "$output")
+    STB_MAC=$(yaml_value mac "$output")
+    STB_SN=$(yaml_value sn "$output")
+    STB_TYPE=$(yaml_value type "$output")
+    STB_AUTH_HOST=$(yaml_value auth_host "$output")
+    STB_PLANE_A_IP=$(yaml_value plane_a_ip "$output")
+    STB_PLANE_B_GATEWAY=$(yaml_value plane_b_gateway "$output")
+    rm -f "$output"
+    if [ "$capture_ok" -eq 0 ] && [ -n "$STB_UID" ] && [ -n "$STB_MAC" ] && [ -n "$STB_SN" ]; then
+      [ -n "$STB_AUTH_HOST" ] || STB_AUTH_HOST='222.68.208.73:7001'
+      echo
+      ok "抓包成功：UID=$STB_UID MAC=$STB_MAC SN=$STB_SN type=${STB_TYPE:-B860A}"
+      return 0
+    fi
+    echo '本次抓包未取得全部必需认证字段（uid/mac/sn）。'
+    printf '输入 R 重新抓包，或输入 M 改为手工填写 [R]：'
+    IFS= read -r ans || ans='R'
+    case "$ans" in
+      [Mm]*) return 1 ;;
+    esac
+  done
+}
+
+collect_stb_manual() {
+  echo
+  echo '手工填写机顶盒认证参数（跳过抓包或抓包失败降级）。'
+  STB_UID=$(ask 'IPTV 账号 UID' "$STB_UID")
+  STB_MAC=$(ask '机顶盒 MAC' "$STB_MAC")
+  STB_SN=$(ask '机顶盒 SN' "$STB_SN")
+  STB_TYPE=$(ask '机顶盒型号' "${STB_TYPE:-B860A}")
+  STB_PLANE_A_IP=$(ask 'A 面/LAN 地址（可留空）' "$STB_PLANE_A_IP")
+  STB_PLANE_B_GATEWAY=$(ask 'B 面网关（可留空）' "$STB_PLANE_B_GATEWAY")
+  return 0
+}
+
 # ---------------------------------------------------------------- main -----
 log "IPTV Spider DHCP-direct 引导开始（answers=$ANSWERS_FILE）"
 
@@ -384,6 +525,17 @@ seed_duid
 bring_up_eth1
 ensure_pkg
 install_app_files
+
+# STB 认证参数：capture 模式经 RouterOS 抓包自动获取（专网 IP 已由 eth1 DHCP 提供）
+if [ "$STB_MODE" = capture ] && { [ -z "$STB_UID" ] || [ -z "$STB_MAC" ] || [ -z "$STB_SN" ]; }; then
+  log '获取机顶盒认证参数（RouterOS 抓包）'
+  collect_stb_capture || collect_stb_manual
+fi
+[ -n "$STB_TYPE" ] || STB_TYPE=B860A
+for key in STB_UID STB_MAC STB_SN STB_TYPE MYSQL_PASSWORD; do
+  [ -n "${!key:-}" ] || die "缺少必需机顶盒/数据库参数：$key（STB_MODE=$STB_MODE，请补全后重跑本脚本）"
+done
+
 setup_mariadb
 write_config_yaml
 
