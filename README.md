@@ -34,7 +34,8 @@ Debian 12 CT 一键装成"DHCP-direct"的 IPTV Spider 节点（eth1 在 VLAN85 �
 1. 准备参数文件（含 IPTV 账号凭据，勿提交 Git）：
 
 ```bash
-cp /root/scripts/iptv-spider-pve/install-dhcp.conf.example /root/install-dhcp.conf
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.1.0/install-dhcp.conf.example \
+  -o /root/install-dhcp.conf
 vi /root/install-dhcp.conf   # 填写 LAN_IP / STB_UID / STB_MAC / STB_SN / STB_TYPE / MYSQL_PASSWORD 等
 chmod 600 /root/install-dhcp.conf
 ```
