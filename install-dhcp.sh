@@ -356,7 +356,8 @@ write_config_yaml() {
     printf "zap:\n  level: 'info'\n  format: 'console'\n  prefix: '[sh-iptv-spider]'\n  director: 'log'\n  link-name: 'latest_log'\n  show-line: false\n  encode-level: 'LowercaseLevelEncoder'\n  stacktrace-key: 'stacktrace'\n  log-in-console: false\n"
   } > "$APP_DIR/config.yaml"
   chmod 600 "$APP_DIR/config.yaml"
-  ok "config.yaml 已写入（stb.ip=$LEASE_IP）"
+  ok "config.yaml 已写入（专网 stb.ip=$LEASE_IP；抓包/机顶盒 uid=$STB_UID mac=$STB_MAC sn=$STB_SN type=$STB_TYPE auth_host=$STB_AUTH_HOST）"
+  sed -n '/^stb:/,/^[a-zA-Z]/p' "$APP_DIR/config.yaml" | sed 's/^/    /'
 }
 
 wait_epg() {
