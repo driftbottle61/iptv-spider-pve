@@ -75,7 +75,7 @@ cd /root/scripts/iptv-spider-pve
 `STB_*`，改为填 `ROUTER_*` 连接参数）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.4/install-dhcp.conf.example \
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.5/install-dhcp.conf.example \
   -o /root/install-dhcp.conf
 vi /root/install-dhcp.conf
 chmod 600 /root/install-dhcp.conf
@@ -84,7 +84,7 @@ chmod 600 /root/install-dhcp.conf
 一键安装（会创建全新 CT 并完成全部配置）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.4/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.5/install.sh) \
   --answers /root/install-dhcp.conf \
   --vmid 118 --hostname iptv-spider \
   --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \

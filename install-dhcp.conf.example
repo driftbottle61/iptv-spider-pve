@@ -57,5 +57,5 @@ MYSQL_PASSWORD=
 
 # ---- 发行包来源：auto=脚本同目录有完整发行包则用本地，否则 GitHub ----
 INSTALL_SOURCE=auto
-VERSION=1.2.52
+VERSION=1.2.53
 REPOSITORY=driftbottle61/sh-iptv-manager
