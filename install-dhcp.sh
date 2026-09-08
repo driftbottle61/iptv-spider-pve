@@ -446,8 +446,9 @@ collect_stb_capture() {
   fi
   while :; do
     echo
-    echo "抓包将在 RouterOS 的机顶盒物理口上运行（${CAPTURE_SECONDS} 秒）。"
-    echo '准备：实体机顶盒已接电但处于待重启状态；开始后请立即断电再上电。'
+    log '安装已就绪，现在进入机顶盒抓包阶段'
+    ok "抓包将在 RouterOS 的机顶盒物理口（${ROUTER_IFACE}）上运行 ${CAPTURE_SECONDS} 秒。"
+    ok '请确认实体机顶盒已接该口并通电待机；按回车后立即断电→上电重启机顶盒。'
     printf '输入 M 后回车改为手工填写；否则直接按回车开始抓包... '
     IFS= read -r ans || ans=''
     case "$ans" in

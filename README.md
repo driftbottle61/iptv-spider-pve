@@ -58,8 +58,10 @@ cd /root/scripts/iptv-spider-pve
 2. **SSH root 登录**：默认允许 root 公钥登录；如需要密码登录，直接输入
    root 密码，创建后会一并写入容器并启用 SSH root 密码登录。
 3. **机顶盒参数获取方式**：
-   - `1) RouterOS 抓包（推荐）`：再填 RouterOS 地址/端口/用户名、登录方式
-     （SSH 私钥或密码）、机顶盒物理口与抓包时长。私钥会自动推送到新 CT。
+   - `1) RouterOS 抓包（推荐）`：填 RouterOS 地址/端口/用户名、登录方式
+     （SSH 私钥或密码）、机顶盒物理口与抓包时长。注意：这里只是**登记连接
+     参数**，真正抓包要等新 CT 建好、专网 DHCP 就绪后才自动开始，届时会再次
+     提示你断电重启机顶盒。私钥会自动推送到新 CT。
    - `2) 手工填写`：按提示输入 uid/mac/sn/type 等。
 4. 确认直播/回放参数与本机 MariaDB 密码后自动开始创建 CT、配置网络。
 5. 安装进行到抓包阶段时，**按提示断电→上电重启实体机顶盒**，等待抓包结束
@@ -73,7 +75,7 @@ cd /root/scripts/iptv-spider-pve
 `STB_*`，改为填 `ROUTER_*` 连接参数）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.2/install-dhcp.conf.example \
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.3/install-dhcp.conf.example \
   -o /root/install-dhcp.conf
 vi /root/install-dhcp.conf
 chmod 600 /root/install-dhcp.conf
@@ -82,7 +84,7 @@ chmod 600 /root/install-dhcp.conf
 一键安装（会创建全新 CT 并完成全部配置）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.2/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.3/install.sh) \
   --answers /root/install-dhcp.conf \
   --vmid 118 --hostname iptv-spider \
   --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \

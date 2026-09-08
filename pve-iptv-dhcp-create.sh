@@ -234,7 +234,11 @@ wizard_make_answers() {
       STB_MODE=capture
       ROUTER_PASSWORD=''
       echo
-      echo 'RouterOS 抓包连接参数（在实体机顶盒上自动抓取 UID/MAC/SN/type 等）：'
+      echo '下面只需先登记 RouterOS 连接信息，真正抓包不会现在开始：'
+      echo '抓包会在【新 CT 创建、专网 DHCP 就绪、应用包就位之后】自动进行'
+      echo '（预计几分钟；到时会再次提示，请把机顶盒断电→上电重启一次）。'
+      echo '请确保实体机顶盒已接在 RouterOS 物理口并保持通电待机。'
+      echo
       ROUTER_HOST=$(ask 'RouterOS 地址' '192.168.100.1')
       ROUTER_PORT=$(ask 'RouterOS SSH 端口' '1314')
       ROUTER_USER=$(ask 'RouterOS SSH 用户名' 'david_ni')
@@ -288,6 +292,16 @@ wizard_make_answers() {
   trap 'rm -f "$ANSWERS_TMP"' EXIT
   ok "已生成安装参数：$wanswer（STB 获取方式=$STB_MODE）"
   ok '安装开始后参数会另存一份到 /root/install-dhcp.conf 供复用'
+  echo
+  log '接下来将自动执行：'
+  ok '1) 持久化 IPTV 桥，pct create 全新 CT，注入 SSH 公钥/密码'
+  ok '2) CT 内 eth1 走 DHCP 获取专网租约，下载应用发行包'
+  if [ "$STB_MODE" = capture ]; then
+    ok "3) 【机顶盒抓包】自动开始（约 ${CAPTURE_SECONDS:-120} 秒）——屏幕提示后请把实体机顶盒断电→上电重启"
+    ok '4) 安装 MariaDB、写 config.yaml、启动服务、EPG/直连验证'
+  else
+    ok '3) 安装 MariaDB、写 config.yaml、启动服务、EPG/直连验证'
+  fi
   echo
 }
 
