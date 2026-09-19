@@ -25,6 +25,8 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
   Release 应用资产发布。
 - `build-app.sh`：维护者用。从 `app/` 源码构建 `bin/` 两个二进制，并打包
   `iptv-spider-app-<版本>-linux-amd64.tar.gz` + `.sha256`。
+- `build-release.sh`：维护者用。打包安装件 `iptv-spider-pve-<tag>.tar.gz` + `.sha256`；
+  固定 mtime/属主/权限/排序，同样内容产出同样字节，且工作区与目标 ref 不一致时直接报错。
 - `docs/`：RouterOS 侧参考文档。
 
 ### 版本号约定
@@ -73,8 +75,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pv
    `app/install-oneclick.sh` 与 `app/pve-iptv-prep-oneclick.sh`（同上）、
    `app/tests/installer_static_test.sh`、`docs/`。
 4. `app/tests/installer_static_test.sh` 自检通过后，打 tag（`vX.Y.Z`）并推 main。
-5. 建 Release，上传两个资产：`iptv-spider-pve-<tag>.tar.gz`（安装件）与
-   `iptv-spider-app-<appver>-linux-amd64.tar.gz`(+`.sha256`)。
+5. `./build-release.sh <tag>` 生成安装件资产（在 tag 对应的提交上运行）。
+6. 建 Release，上传两个资产：`iptv-spider-pve-<tag>.tar.gz`(+`.sha256`，安装件）与
+   `iptv-spider-app-<appver>-linux-amd64.tar.gz`(+`.sha256`，应用包）。
 
 应用运行细节、RouterOS 抓包说明、配置项见 `app/README_CN.md`。
 
