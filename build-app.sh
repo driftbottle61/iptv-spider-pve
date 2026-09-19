@@ -40,8 +40,10 @@ done
 
 install -d -m 0755 "$OUT"
 echo "打包 $ARCHIVE ..."
-tar -C "$ROOT" --exclude='app/.git' --exclude='app/config.yaml' --exclude='*.tar.gz' \
-  -czf "$OUT/$ARCHIVE" app
+# 固定 mtime/属主/排序 + gzip -n，保证同样内容产出同样的字节（便于校验与复现）
+tar -C "$ROOT" --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 \
+  --exclude='app/.git' --exclude='app/config.yaml' --exclude='*.tar.gz' \
+  -cf - app | gzip -9n > "$OUT/$ARCHIVE"
 (cd "$OUT" && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
 
 echo
