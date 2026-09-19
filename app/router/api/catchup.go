@@ -30,6 +30,8 @@ const (
 	catchupMinTail        = 12 * time.Second
 	catchupSegmentRetries = 3
 	catchupRetryDelay     = 250 * time.Millisecond
+	// 整条回放流重试之间的退避：比切片级重试长，给上游会话/切片留出就绪时间
+	catchupAttemptBackoff = 1500 * time.Millisecond
 	catchupUserAgent      = "IPTVSpiderCatchup/1.0"
 )
 
@@ -399,7 +401,13 @@ func streamCatchup(ctx iris.Context) {
 		defer relayCancel()
 		for attempt := 0; attempt < 3; attempt++ {
 			written, relayErr := relayHLSWithSource(relayCtx, playSource, ctx.ResponseWriter())
-			if relayErr == nil || ctx.Request().Context().Err() != nil {
+			if relayErr == nil {
+				if written > 0 {
+					global.LOG.Info(fmt.Sprintf("catchup relay done channel=%s remote=%s bytes=%d attempt=%d", channelID, ctx.RemoteAddr(), written, attempt+1))
+				}
+				return
+			}
+			if ctx.Request().Context().Err() != nil {
 				return
 			}
 			if written > 0 || !retryableRelayError(relayErr) || attempt == 2 {
@@ -407,6 +415,9 @@ func streamCatchup(ctx iris.Context) {
 				return
 			}
 			global.LOG.Warn(fmt.Sprintf("catchup relay retry channel=%s attempt=%d error=%s", channelID, attempt+1, relayErr.Error()))
+			if err := waitCatchupAttempt(relayCtx, attempt); err != nil {
+				return
+			}
 			playSource, err = getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
 			if err != nil {
 				global.LOG.Warn(fmt.Sprintf("catchup relay refresh failed channel=%s error=%s", channelID, err.Error()))
@@ -472,7 +483,11 @@ func retryableRelayError(err error) bool {
 	}
 	var relayErr *hlsRelayError
 	if errors.As(err, &relayErr) {
-		return relayErr.status == http.StatusUnauthorized || relayErr.status == http.StatusForbidden ||
+		// 400 也算可重试：上游对"刚重认证/刚签发的播放列表"偶发拒绝（实测 2026-09-13、09-16、
+		// 09-19 各一次，客户端自己重试都能成功）。调用方只在"尚未向客户端写过任何字节"时才会重试，
+		// 所以不会把已输出的流截断或重复。
+		return relayErr.status == http.StatusBadRequest ||
+			relayErr.status == http.StatusUnauthorized || relayErr.status == http.StatusForbidden ||
 			relayErr.status == http.StatusNotFound || relayErr.status == http.StatusTooManyRequests || relayErr.status >= 500
 	}
 	var netErr net.Error
@@ -623,7 +638,14 @@ func relayHLSWithSource(ctx context.Context, source tvodPlaySource, writer io.Wr
 }
 
 func waitCatchupRetry(ctx context.Context, retry int) error {
-	delay := catchupRetryDelay * time.Duration(retry+1)
+	return waitCatchupDelay(ctx, catchupRetryDelay*time.Duration(retry+1))
+}
+
+func waitCatchupAttempt(ctx context.Context, attempt int) error {
+	return waitCatchupDelay(ctx, catchupAttemptBackoff*time.Duration(attempt+1))
+}
+
+func waitCatchupDelay(ctx context.Context, delay time.Duration) error {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {

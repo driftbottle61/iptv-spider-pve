@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,6 +11,27 @@ import (
 	"testing"
 	"time"
 )
+
+// 回归：上游对刚重认证/刚签发播放列表偶发返回 400（实测 2026-09-13、09-16、09-19 各一次），
+// 若不算可重试，整条回放流会以 bytes=0 直接失败（客户端表现为"第一次点回放没反应"）。
+func TestRetryableRelayErrorIncludesBadRequest(t *testing.T) {
+	cases := map[int]bool{
+		400: true, 401: true, 403: true, 404: true, 429: true, 500: true, 503: true,
+		302: false, 416: false, 200: false,
+	}
+	for status, want := range cases {
+		err := &hlsRelayError{status: status, err: fmt.Errorf("HLS request returned %d", status)}
+		if got := retryableRelayError(err); got != want {
+			t.Errorf("retryableRelayError(status=%d) = %v, want %v", status, got, want)
+		}
+	}
+	if retryableRelayError(context.Canceled) {
+		t.Error("context.Canceled 不应可重试（客户端已断开）")
+	}
+	if retryableRelayError(errors.New("upstream returned empty response")) {
+		t.Error("普通错误不应可重试")
+	}
+}
 
 func TestIsPrivateClient(t *testing.T) {
 	tests := map[string]bool{
