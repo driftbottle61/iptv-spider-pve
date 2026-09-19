@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.2.1"
-REPO_TAG="v0.3.0"
+VERSION="1.2.2"
+REPO_TAG="v0.3.1"
 REPOSITORY="driftbottle61/iptv-spider-pve"
 ARCHIVE="iptv-spider-app-${VERSION}-linux-amd64.tar.gz"
 BASE_URL="https://github.com/${REPOSITORY}/releases/download/${REPO_TAG}"

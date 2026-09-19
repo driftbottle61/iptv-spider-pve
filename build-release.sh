@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 打包本仓库的"安装件"发行包（维护者用，在仓库根运行）。
 #
-#   ./build-release.sh v0.3.0    打包 iptv-spider-pve-v0.3.0.tar.gz(+.sha256)
+#   ./build-release.sh v0.3.1    打包 iptv-spider-pve-v0.3.1.tar.gz(+.sha256)
 #   ./build-release.sh            ref 省略时取当前 HEAD 所在 tag
 set -euo pipefail
 
@@ -17,7 +17,7 @@ esac
 cd "$ROOT"
 if [ -z "$REF" ]; then
   REF=$(git describe --tags --exact-match HEAD 2>/dev/null) || {
-    echo '当前 HEAD 不在 tag 上，请显式传入 ref，例如：./build-release.sh v0.3.0' >&2; exit 1; }
+    echo '当前 HEAD 不在 tag 上，请显式传入 ref，例如：./build-release.sh v0.3.1' >&2; exit 1; }
 fi
 
 MEMBERS=(.gitignore install.sh install-dhcp.sh pve-iptv-dhcp-create.sh install-dhcp.conf.example README.md docs)
