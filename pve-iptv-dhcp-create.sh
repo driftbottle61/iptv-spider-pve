@@ -342,8 +342,11 @@ if [ -n "$PKG_DIR" ]; then
   [ -d "$PKG_DIR/bin" ] && [ -f "$PKG_DIR/systemd/iptv-spider.service" ] || { echo "--pkg-dir 不是完整发行目录：$PKG_DIR" >&2; exit 1; }
 fi
 
-# MAC/DUID 一致性：answers 中带 DHCP_DUID 时必须有 --eth1-mac
-if grep -q '^DHCP_DUID=' "$ANSWERS" && [ -z "$ETH1_MAC" ]; then
+# MAC/DUID 一致性：answers 中 DHCP_DUID 非空时必须有 --eth1-mac
+# 注意：必须判"值非空"，不能只看 `^DHCP_DUID=` 是否出现——answers 模板里本来就有一行空的
+# DHCP_DUID=（照文档复制模板填写就会命中），旧写法会误报。
+DUID_IN_ANSWERS=$( ( set +u; . "$ANSWERS" >/dev/null 2>&1; printf '%s' "${DHCP_DUID:-}" ) )
+if [ -n "$DUID_IN_ANSWERS" ] && [ -z "$ETH1_MAC" ]; then
   echo 'answers 中设置了 DHCP_DUID（续用原租约），必须同时指定 --eth1-mac 保持一致。' >&2
   exit 1
 fi
