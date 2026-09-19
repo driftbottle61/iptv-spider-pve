@@ -63,6 +63,9 @@ INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
 VERSION=${VERSION:-1.2.1}                # 应用版本：决定发行资产文件名
 REPO_TAG=${REPO_TAG:-v0.3.0}             # 本仓库 Release 标签：决定资产所在路径
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
+# 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
+PKG_TMPDIR=''
+trap 'rm -rf "${PKG_TMPDIR:-}"' EXIT
 SYNC_CONF=/etc/iptv-spider/dhcp-direct.conf
 IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
 
@@ -261,18 +264,20 @@ ensure_pkg() {
     fi
   fi
   command -v curl >/dev/null 2>&1 || die '缺少 curl。'
-  local tmp archive url checksum_url
-  tmp=$(mktemp -d /tmp/iptv-pkg.XXXXXX)
-  trap 'rm -rf "$tmp"' EXIT
+  # 注意：临时目录必须是脚本级变量——若声明为 local 并在函数内注册 EXIT trap，
+  # 函数返回后 trap 触发时该变量已消失，set -u 下会报 "tmp: unbound variable" 并让
+  # 整个安装以非 0 退出（旧写法如此，由 v0.3.0 全新安装实测发现）。清理在脚本顶部注册。
+  local archive url checksum_url
+  PKG_TMPDIR=$(mktemp -d /tmp/iptv-pkg.XXXXXX)
   archive="iptv-spider-app-${VERSION}-linux-amd64.tar.gz"
   url="https://github.com/${REPOSITORY}/releases/download/${REPO_TAG}/${archive}"
   ok "下载发行包 $archive"
-  curl -fL --retry 3 --retry-delay 2 -o "$tmp/$archive" "$url" || die "下载失败：$url"
-  if curl -fsL --max-time 20 -o "$tmp/$archive.sha256" "$url.sha256"; then
-    (cd "$tmp" && sha256sum -c "$archive.sha256" >/dev/null) || die '发行包 SHA256 校验失败。'
+  curl -fL --retry 3 --retry-delay 2 -o "$PKG_TMPDIR/$archive" "$url" || die "下载失败：$url"
+  if curl -fsL --max-time 20 -o "$PKG_TMPDIR/$archive.sha256" "$url.sha256"; then
+    (cd "$PKG_TMPDIR" && sha256sum -c "$archive.sha256" >/dev/null) || die '发行包 SHA256 校验失败。'
   fi
-  tar -xzf "$tmp/$archive" -C "$tmp"
-  PKG_DIR="$tmp/app"
+  tar -xzf "$PKG_TMPDIR/$archive" -C "$PKG_TMPDIR"
+  PKG_DIR="$PKG_TMPDIR/app"
   [ -f "$PKG_DIR/systemd/iptv-spider.service" ] || die '发行包结构不完整。'
   ok "使用 GitHub Release ${REPO_TAG} 发行包（app ${VERSION}）"
 }
