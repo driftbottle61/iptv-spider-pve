@@ -1,0 +1,74 @@
+system:
+  env: 'release'
+  addr: '0.0.0.0:8888'
+  db-type: 'mysql'
+  oss-type: ''
+  # 管理接口令牌：非空时 /api/run 等必须带 ?token= 匹配；留空=仅内网/回环可调（勿公网暴露 8888）
+  api-token: ''
+
+stb:
+  uid: ''
+  mac: ''
+  sn: ''
+  ip: ''
+  type: ''
+  auth_host: '222.68.208.73:7001'
+  plane_a_ip: ''
+  plane_b_gateway: ''
+
+epg:
+  generator: 'sh-iptv-spider'
+  source: 'Shanghai Telecom IPTV'
+  xml_url: 'http://192.168.100.90:8888/api/epg?daysAgo=7'
+  fetch_cron: '0 0 8,16,23 * * *'
+
+catchup:
+  # Existing live M3U source, normally the local xTeVe URL. Leave empty to use spider output.
+  source_m3u: ''
+  # Multicast-to-unicast endpoint for /tv.m3u, for example 192.168.100.51:4022.
+  udpxy: ''
+  days: 7
+  # Source IPs that need the spider to relay TVOD streams instead of returning a redirect.
+  relay_clients: []
+
+mysql:
+  path: '127.0.0.1'
+  config: 'parseTime=True&charset=utf8mb4'
+  db-name: 'iptv'
+  username: 'iptv'
+  password: '__MYSQL_PASSWORD__'
+  max-idle-conns: 10
+  max-open-conns: 50
+  log-mode: 'error'
+  log-zap: false
+
+cache:
+  type: 'memory'
+  prefix: 'iptv'
+  memory_interval: 60
+  default_timeout: 10
+
+redis:
+  db: 0
+  addr: '127.0.0.1:6379'
+  password: ''
+
+oss:
+  enable: false
+  upload_cron: ''
+  endpoint: ''
+  use-ssl: true
+  bucket: ''
+  access-key: ''
+  secret-key: ''
+
+zap:
+  level: 'info'
+  format: 'console'
+  prefix: '[sh-iptv-spider]'
+  director: 'log'
+  link-name: 'latest_log'
+  show-line: false
+  encode-level: 'LowercaseLevelEncoder'
+  stacktrace-key: 'stacktrace'
+  log-in-console: false

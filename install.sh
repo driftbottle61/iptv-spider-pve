@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# iptv-spider-pve 一键安装引导（PVE 侧）
+# iptv-spider-pve 一键安装引导（PVE 侧，单仓库自包含）
 #
-# 在 Proxmox VE Shell 以 root 运行：
-#   bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.5/install.sh)
-#     （无参数=交互向导：扫描空闲 CT/IP 建议值、机顶盒抓包/手工、冲突重输）
-#   参数化方式：
-#   bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.2.5/install.sh) \
-#     --answers /root/install-dhcp.conf --vmid 118 --hostname iptv-spider \
-#     --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \
-#     --ssh-pubkey /tmp/id_ed25519.pub
-#
-# 本引导只负责把同版本发行包拿到本机，其余参数原样透传给
-# pve-iptv-dhcp-create.sh（完整参数表见 README.md）。
+# 本仓库同时包含 PVE 编排脚本与应用本体（app/），全新安装只需这一个仓库，
+# 不依赖其它 GitHub 仓库：app/bin 就位时把 app/ 作为本地发行包推入新 CT，
+# 否则只从本仓库 Release 取应用包（iptv-spider-app-<ver>-linux-amd64.tar.gz）。
 set -euo pipefail
 
-VERSION=${IPTV_SPIDER_PVE_VERSION:-v0.2.5}
+VERSION=${IPTV_SPIDER_PVE_VERSION:-v0.3.0}
 REPO=driftbottle61/iptv-spider-pve
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
-  echo
-  echo '其余参数请参考 pve-iptv-dhcp-create.sh 的 --help：'
-  echo '  无参数运行即进入交互向导（扫描空闲 CT/IP、冲突重输、机顶盒抓包）。'
-  echo '  参数化：--answers <file> / --vmid / --hostname / --mgmt-ip / --mgmt-gw /'
-  echo '          --eth1-mac / --ssh-pubkey / --routeros-key / ...（见 README.md）'
+  cat <<'HELP'
+iptv-spider-pve 一键安装引导（PVE 侧，单仓库自包含）
+
+在 Proxmox VE Shell 以 root 运行：
+  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.0/install.sh)
+    （无参数=交互向导：扫描空闲 CT/IP 建议值、机顶盒抓包/手工、冲突重输）
+  参数化方式：
+  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.0/install.sh) \
+    --answers /root/install-dhcp.conf --vmid 118 --hostname iptv-spider \
+    --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \
+    --ssh-pubkey /tmp/id_ed25519.pub
+
+其余参数请参考 pve-iptv-dhcp-create.sh 的 --help（完整参数表见 README.md）。
+HELP
   exit 0
 }
 case "${1:-}" in
@@ -34,7 +34,7 @@ esac
 command -v pct >/dev/null 2>&1 || { echo '未检测到 pct，此脚本必须运行在 Proxmox VE 主机。' >&2; exit 1; }
 
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if [ -f "$SELF_DIR/pve-iptv-dhcp-create.sh" ] && [ -f "$SELF_DIR/install-dhcp.sh" ]; then
+if [ -f "$SELF_DIR/pve-iptv-dhcp-create.sh" ] && [ -f "$SELF_DIR/install-dhcp.sh" ] && [ -d "$SELF_DIR/app" ]; then
   echo "使用本地发行文件：$SELF_DIR"
   exec bash "$SELF_DIR/pve-iptv-dhcp-create.sh" "$@"
 fi

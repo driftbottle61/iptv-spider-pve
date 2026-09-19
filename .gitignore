@@ -1,2 +1,4 @@
 /install-dhcp.conf
 *.tar.gz
+app/bin/
+/dist/

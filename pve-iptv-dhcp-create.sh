@@ -30,7 +30,7 @@
 #                               向导里可直接输入；留空则仅公钥登录）
 #   --routeros-key <file>       STB_MODE=capture 且私钥登录时，把本机 RouterOS
 #                               SSH 私钥推送到容器 /root/.ssh/id_ed25519_routeros
-#   --pkg-dir <dir>             本地 sh-iptv-manager 发行目录；缺省 CT 内走 GitHub Release
+#   --pkg-dir <dir>             本地应用发行目录；缺省自动使用本仓库 app/（自包含，无需外部仓库）；无 app/ 时 CT 内走本仓库 GitHub Release
 #   --bootstrap <install-dhcp.sh>  缺省与本脚本同目录
 #   --destroy-existing          同 vmid 已存在时先停止并销毁（危险）
 #   --apply-live                桥不存在时执行运行态补建（一般只需持久化）
@@ -284,7 +284,7 @@ wizard_make_answers() {
     printf "SOURCE_M3U=\nUDPXY='%s'\nCATCHUP_DAYS=%s\nRELAY_CLIENTS=\n" "$udpxy" "$CATCHUP_DAYS"
     printf "MYSQL_HOST=127.0.0.1\nMYSQL_DB=iptv\nMYSQL_USER=iptv\nMYSQL_PASSWORD=%q\n" "$dbpass"
     printf "ROOT_PASSWORD=%q\n" "$ROOT_PASSWORD"
-    printf "INSTALL_SOURCE=auto\nVERSION=1.2.53\nREPOSITORY=driftbottle61/sh-iptv-manager\n"
+    printf "INSTALL_SOURCE=auto\nVERSION=1.2.1\nREPO_TAG=v0.3.0\nREPOSITORY=driftbottle61/iptv-spider-pve\n"
   } > "$wanswer"
   chmod 600 "$wanswer"
   ANSWERS_TMP=$wanswer
@@ -326,6 +326,17 @@ fi
 
 BOOTSTRAP=${BOOTSTRAP:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/install-dhcp.sh}
 [ -f "$BOOTSTRAP" ] || { echo "找不到 bootstrap：$BOOTSTRAP" >&2; exit 1; }
+
+PKG_TMP=''
+if [ -z "$PKG_DIR" ] && [ -d "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/app/bin" ] \
+   && [ -f "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/app/systemd/iptv-spider.service" ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  PKG_TMP=$(mktemp -d /tmp/iptv-pve-pkg.XXXXXX)
+  cp -a "$SCRIPT_DIR/app/." "$PKG_TMP/"
+  cp "$BOOTSTRAP" "$PKG_TMP/install-dhcp.sh"
+  PKG_DIR=$PKG_TMP
+  ok "自包含模式：使用本仓库 app/ 作为发行包（$SCRIPT_DIR/app）"
+fi
 
 if [ -n "$PKG_DIR" ]; then
   [ -d "$PKG_DIR/bin" ] && [ -f "$PKG_DIR/systemd/iptv-spider.service" ] || { echo "--pkg-dir 不是完整发行目录：$PKG_DIR" >&2; exit 1; }
@@ -469,7 +480,7 @@ push_routeros_key
 
 # 上传 answers 与 bootstrap
 work=$(mktemp -d /tmp/iptv-dhcp-work.XXXXXX)
-trap 'rm -rf "$work"; [ -n "${ANSWERS_TMP:-}" ] && rm -f "$ANSWERS_TMP"' EXIT
+trap 'rm -rf "$work" "$PKG_TMP"; [ -n "${ANSWERS_TMP:-}" ] && rm -f "$ANSWERS_TMP"' EXIT
 if [ -n "${ANSWERS_TMP:-}" ]; then
   cp "$ANSWERS_TMP" /root/install-dhcp.conf
   chmod 600 /root/install-dhcp.conf

@@ -1,0 +1,17 @@
+[Unit]
+Description=Shanghai Telecom IPTV Spider
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__INSTALL_DIR__/iptv-spider -c __INSTALL_DIR__/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Check RouterOS IPTV DHCP lease periodically
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1min
+Persistent=true
+[Install]
+WantedBy=timers.target

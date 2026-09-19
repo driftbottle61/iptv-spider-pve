@@ -60,8 +60,9 @@ ROUTER_IFACE=${ROUTER_IFACE:-ether3_lan}
 CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
-VERSION=${VERSION:-1.2.53}
-REPOSITORY=${REPOSITORY:-driftbottle61/sh-iptv-manager}
+VERSION=${VERSION:-1.2.1}                # 应用版本：决定发行资产文件名
+REPO_TAG=${REPO_TAG:-v0.3.0}             # 本仓库 Release 标签：决定资产所在路径
+REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 SYNC_CONF=/etc/iptv-spider/dhcp-direct.conf
 IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
 
@@ -263,17 +264,17 @@ ensure_pkg() {
   local tmp archive url checksum_url
   tmp=$(mktemp -d /tmp/iptv-pkg.XXXXXX)
   trap 'rm -rf "$tmp"' EXIT
-  archive="sh-iptv-spider-installer-${VERSION}-linux-amd64.tar.gz"
-  url="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${archive}"
+  archive="iptv-spider-app-${VERSION}-linux-amd64.tar.gz"
+  url="https://github.com/${REPOSITORY}/releases/download/${REPO_TAG}/${archive}"
   ok "下载发行包 $archive"
   curl -fL --retry 3 --retry-delay 2 -o "$tmp/$archive" "$url" || die "下载失败：$url"
   if curl -fsL --max-time 20 -o "$tmp/$archive.sha256" "$url.sha256"; then
     (cd "$tmp" && sha256sum -c "$archive.sha256" >/dev/null) || die '发行包 SHA256 校验失败。'
   fi
   tar -xzf "$tmp/$archive" -C "$tmp"
-  PKG_DIR="$tmp/iptv-spider-installer"
+  PKG_DIR="$tmp/app"
   [ -f "$PKG_DIR/systemd/iptv-spider.service" ] || die '发行包结构不完整。'
-  ok "使用 GitHub Release v${VERSION} 发行包"
+  ok "使用 GitHub Release ${REPO_TAG} 发行包（app ${VERSION}）"
 }
 
 install_app_files() {
