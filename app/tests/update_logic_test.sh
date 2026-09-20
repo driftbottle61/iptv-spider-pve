@@ -138,6 +138,7 @@ grep -q 'KEEP-ME' "$APP_DIR/config.yaml" || fail 'config.yaml 未保留'
 grep -q 'restart' "$FAKE_SYSTEMCTL_LOG" || fail '更新未重启服务'
 grep -q 'available_version=' "$TMP/state/update-state" || fail '未写更新状态文件'
 grep -q 'result=updated' "$TMP/state/update-state" || fail '状态未记录 updated'
+grep -q '^available_version=$' "$TMP/state/update-state" || fail '更新完成后不应再记录“有新版本”'
 ls -d "$APP_DIR".update-backup.* >/dev/null 2>&1 || fail '未生成更新前备份'
 echo 'ok: 正常更新（保留配置 + 安装文件 + 重启 + 备份 + 状态）'
 

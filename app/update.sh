@@ -321,6 +321,6 @@ if ! do_install "$NEW_VERSION"; then
   exit 1
 fi
 rm -rf "$STAGE_DIR"
-write_state 'updated' "$NEW_VERSION"
+write_state 'updated' ''
 /usr/local/sbin/iptv-spider-status --skip-replay || true
 exit 0

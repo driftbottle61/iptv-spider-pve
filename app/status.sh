@@ -52,6 +52,11 @@ version=$(cat "$APP_DIR/VERSION" 2>/dev/null || printf '未知')
 update_state=/var/lib/iptv-spider/update-state
 update_available=''
 update_checked=''
+newer_available() {
+  local cur=$1 avail=$2
+  [ -n "$avail" ] && [ "$avail" != "$cur" ] || return 1
+  [ "$(printf '%s\n%s\n' "$cur" "$avail" | sort -V | tail -n 1)" = "$avail" ]
+}
 if [ -r "$update_state" ]; then
   update_available=$(sed -n 's/^available_version=//p' "$update_state" | head -n 1)
   update_checked=$(sed -n 's/^checked_at=//p' "$update_state" | head -n 1)
@@ -73,7 +78,7 @@ echo 'IPTV Spider 运行状态'
 echo '------------------------------------------------------------'
 echo "  软件版本：$version"
 if [ -n "$update_checked" ]; then
-  if [ -n "$update_available" ]; then
+  if newer_available "$version" "$update_available"; then
     echo "  更新检测：$update_checked 发现新版本 $update_available（执行 iptv-spider-update 更新）"
   else
     echo "  更新检测：$update_checked 已是最新"
