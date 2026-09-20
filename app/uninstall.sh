@@ -40,6 +40,8 @@ backup_dir="/root/iptv-spider-uninstall-backup-$stamp"
 
 systemctl disable --now iptv-spider.service 2>/dev/null || true
 rm -f /etc/systemd/system/iptv-spider.service
+systemctl disable --now iptv-spider-update.timer 2>/dev/null || true
+rm -f /etc/systemd/system/iptv-spider-update.service /etc/systemd/system/iptv-spider-update.timer
 systemctl daemon-reload
 
 if [[ "$keep_config" =~ ^([Yy][Ee][Ss])$ ]]; then
@@ -80,6 +82,9 @@ rm -rf "$APP_DIR"
 rm -f /usr/local/sbin/iptv-spider-uninstall
 rm -f /usr/local/sbin/iptv-spider-status
 rm -f /usr/local/sbin/iptv-spider
+rm -f /usr/local/sbin/iptv-spider-update
+rm -f /etc/iptv-spider/update.conf
+rm -rf /var/lib/iptv-spider
 
 if [[ "$remove_packages" =~ ^([Yy][Ee][Ss])$ ]]; then
   apt-get purge -y mariadb-server mariadb-client

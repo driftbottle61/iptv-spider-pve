@@ -3,6 +3,8 @@ set -uo pipefail
 
 APP_DIR=${IPTV_SPIDER_DIR:-/opt/sh-iptv-spider}
 STATUS_CMD=/usr/local/sbin/iptv-spider-status
+UPDATE_CMD=/usr/local/sbin/iptv-spider-update
+UPDATE_CONF=/etc/iptv-spider/update.conf
 SERVICE=iptv-spider.service
 
 if [ "${EUID}" -ne 0 ]; then
@@ -77,6 +79,81 @@ manual_fetch() {
   wait_for_log '更新节目信息列表完成' "$started" "$log_offset" 'EPG 抓取' || true
   echo
   "$STATUS_CMD" --skip-replay || true
+}
+
+update_menu() {
+  local output rc confirm
+  if [ ! -x "$UPDATE_CMD" ]; then
+    echo '未找到更新命令，请先覆盖升级到含自动更新功能的版本。'
+    return 1
+  fi
+  echo '正在检测新版本...'
+  output=$("$UPDATE_CMD" --check 2>&1)
+  rc=$?
+  printf '%s\n' "$output"
+  case "$rc" in
+    0) return 0 ;;
+    10) ;;
+    *) echo '检测失败（网络或 GitHub 访问异常）。'; return 1 ;;
+  esac
+  read -r -p '是否现在更新？[y/N]：' confirm
+  [[ "$confirm" =~ ^[Yy]$ ]] || { echo '已取消。'; return 0; }
+  if "$UPDATE_CMD"; then
+    echo '更新完成。'
+  else
+    echo '更新失败；若已安装新版本，安装器已自动回滚。'
+    return 1
+  fi
+}
+
+auto_update_menu() {
+  local current timer_state choice answer
+  current=$(sed -n 's/^AUTO_UPDATE=\([0-9][0-9]*\).*/\1/p' "$UPDATE_CONF" 2>/dev/null | tail -n 1)
+  current=${current:-1}
+  if systemctl is-enabled --quiet iptv-spider-update.timer 2>/dev/null; then
+    timer_state='已启用'
+  else
+    timer_state='未启用'
+  fi
+  echo '自动更新设置'
+  echo '------------------------------------------------------------'
+  echo "  定时检测：$timer_state（每天，见 systemctl list-timers iptv-spider-update.timer）"
+  if [ "$current" = '1' ]; then
+    echo '  检测到新版：自动安装'
+  else
+    echo '  检测到新版：仅记录，等人工执行更新'
+  fi
+  echo '------------------------------------------------------------'
+  echo '  1、开启自动更新（每天检测，检测到新版自动安装）'
+  echo '  2、仅自动检测（不自动安装，新版在状态里提示）'
+  echo '  3、关闭定时检测'
+  echo '  0、返回'
+  echo '------------------------------------------------------------'
+  read -r -p '请选择 [0-3]：' choice
+  case "$choice" in
+    1|2)
+      install -d -m 0755 /etc/iptv-spider
+      [ -f "$UPDATE_CONF" ] || cp -a "$APP_DIR/update.conf.example" "$UPDATE_CONF"
+      if [ "$choice" = '1' ]; then answer=1; else answer=0; fi
+      if grep -q '^AUTO_UPDATE=' "$UPDATE_CONF"; then
+        sed -i "s/^AUTO_UPDATE=.*/AUTO_UPDATE=$answer/" "$UPDATE_CONF"
+      else
+        printf 'AUTO_UPDATE=%s\n' "$answer" >> "$UPDATE_CONF"
+      fi
+      systemctl enable --now iptv-spider-update.timer >/dev/null 2>&1 || true
+      if [ "$answer" = '1' ]; then
+        echo '已开启：每天 04:30 前后检测并自动安装新版本。'
+      else
+        echo '已设置：每天检测，仅记录新版本，不自动安装。'
+      fi
+      ;;
+    3)
+      systemctl disable --now iptv-spider-update.timer >/dev/null 2>&1 || true
+      echo '已关闭定时检测；仍可随时用菜单里的“检查更新”手动更新。'
+      ;;
+    0) ;;
+    *) echo '输入无效，请输入 0 到 3。' ;;
+  esac
 }
 
 restart_service() {
@@ -187,9 +264,11 @@ while :; do
   echo '  3、重启服务'
   echo '  4、抓取计划'
   echo '  5、卸载'
+  echo '  6、检查更新'
+  echo '  7、自动更新设置'
   echo '  0、退出'
   echo '------------------------------------------------------------'
-  read -r -p '请选择 [0-5]：' choice
+  read -r -p '请选择 [0-7]：' choice
   case "$choice" in
     1) "$STATUS_CMD" || true ;;
     2) manual_fetch ;;
@@ -202,10 +281,12 @@ while :; do
         exit 0
       fi
       ;;
+    6) update_menu ;;
+    7) auto_update_menu ;;
     0)
       echo '已退出管理菜单，IPTV Spider 服务保持运行。'
       exit 0
       ;;
-    *) echo '输入无效，请输入 0 到 5。' ;;
+    *) echo '输入无效，请输入 0 到 7。' ;;
   esac
 done

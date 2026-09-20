@@ -1,0 +1,7 @@
+[Unit]
+Description=Check and apply IPTV Spider updates
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/iptv-spider-update --auto

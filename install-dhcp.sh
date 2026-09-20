@@ -60,8 +60,8 @@ ROUTER_IFACE=${ROUTER_IFACE:-ether3_lan}
 CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
-VERSION=${VERSION:-1.2.2}                # 应用版本：决定发行资产文件名
-REPO_TAG=${REPO_TAG:-v0.3.1}             # 本仓库 Release 标签：决定资产所在路径
+VERSION=${VERSION:-1.2.3}                # 应用版本：决定发行资产文件名
+REPO_TAG=${REPO_TAG:-v0.3.2}             # 本仓库 Release 标签：决定资产所在路径
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 # 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
 PKG_TMPDIR=''
@@ -296,8 +296,16 @@ install_app_files() {
   install -m 0755 "$APP_DIR/uninstall.sh" /usr/local/sbin/iptv-spider-uninstall
   install -m 0755 "$APP_DIR/status.sh" /usr/local/sbin/iptv-spider-status
   install -m 0755 "$APP_DIR/manage.sh" /usr/local/sbin/iptv-spider
+  install -m 0755 "$APP_DIR/update.sh" /usr/local/sbin/iptv-spider-update
+  install -m 0644 "$APP_DIR/systemd/iptv-spider-update.service" /etc/systemd/system/iptv-spider-update.service
+  install -m 0644 "$APP_DIR/systemd/iptv-spider-update.timer" /etc/systemd/system/iptv-spider-update.timer
+  if [ ! -f /etc/iptv-spider/update.conf ]; then
+    install -d -m 0755 /etc/iptv-spider
+    install -m 0644 "$APP_DIR/update.conf.example" /etc/iptv-spider/update.conf
+  fi
   sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
   systemctl daemon-reload
+  systemctl enable --now iptv-spider-update.timer >/dev/null 2>&1 || true
   ok "应用文件与 systemd 单元已就位"
 }
 

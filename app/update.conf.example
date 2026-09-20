@@ -1,0 +1,14 @@
+# IPTV Spider 自动更新配置（安装到 /etc/iptv-spider/update.conf）
+#
+# AUTO_UPDATE=1：定时检测到新版本后自动安装（带 SHA256 校验与失败回滚）
+# AUTO_UPDATE=0：只检测并记录结果，等人工执行 iptv-spider-update
+AUTO_UPDATE=1
+
+# 更新源仓库（一般不用改）
+REPO=driftbottle61/iptv-spider-pve
+
+# 保留的历史备份份数（$APP_DIR.update-backup.*）
+KEEP_BACKUPS=3
+
+# GitHub API 限流（未登录 60 次/小时）时，可填一个只读 token
+# GITHUB_TOKEN=

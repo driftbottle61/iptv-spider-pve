@@ -49,6 +49,13 @@ http_check() {
 }
 
 version=$(cat "$APP_DIR/VERSION" 2>/dev/null || printf '未知')
+update_state=/var/lib/iptv-spider/update-state
+update_available=''
+update_checked=''
+if [ -r "$update_state" ]; then
+  update_available=$(sed -n 's/^available_version=//p' "$update_state" | head -n 1)
+  update_checked=$(sed -n 's/^checked_at=//p' "$update_state" | head -n 1)
+fi
 service_state=$(systemctl is-active iptv-spider.service 2>/dev/null || true)
 enabled_state=$(systemctl is-enabled iptv-spider.service 2>/dev/null || true)
 restarts=$(systemctl show iptv-spider.service -p NRestarts --value 2>/dev/null || printf '未知')
@@ -65,6 +72,15 @@ listen_addr=$(ss -lnt 2>/dev/null | awk -v suffix=":$port" 'length($4)>=length(s
 echo 'IPTV Spider 运行状态'
 echo '------------------------------------------------------------'
 echo "  软件版本：$version"
+if [ -n "$update_checked" ]; then
+  if [ -n "$update_available" ]; then
+    echo "  更新检测：$update_checked 发现新版本 $update_available（执行 iptv-spider-update 更新）"
+  else
+    echo "  更新检测：$update_checked 已是最新"
+  fi
+elif [ -x /usr/local/sbin/iptv-spider-update ]; then
+  echo '  更新检测：尚未检测（执行 iptv-spider-update --check）'
+fi
 echo "  服务状态：${service_state:-未知}"
 echo "  开机启动：${enabled_state:-未知}"
 echo "  重启次数：${restarts:-未知}"

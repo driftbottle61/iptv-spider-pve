@@ -21,8 +21,8 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
   `STB_MODE=capture`（RouterOS 抓包）；本地 MariaDB + config.yaml + systemd。
   GitHub 兜底下载只指向本仓库 Release（`iptv-spider-app-<ver>-linux-amd64.tar.gz`）。
 - `app/`：应用本体（iptv-spider 源码 + assets/logos + `status.sh`/`manage.sh`/
-  `uninstall.sh`/覆盖升级 `install.sh` 等）。**`app/bin/` 的二进制不入库**，只随
-  Release 应用资产发布。
+  `uninstall.sh`/覆盖升级 `install.sh`/自动更新 `update.sh` 等）。**`app/bin/`
+  的二进制不入库**，只随 Release 应用资产发布。
 - `build-app.sh`：维护者用。从 `app/` 源码构建 `bin/` 两个二进制，并打包
   `iptv-spider-app-<版本>-linux-amd64.tar.gz` + `.sha256`。
 - `build-release.sh`：维护者用。打包安装件 `iptv-spider-pve-<tag>.tar.gz` + `.sha256`；
@@ -33,8 +33,8 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
 
 | 概念 | 取值 | 出现位置 |
 |---|---|---|
-| 仓库 tag | `v0.3.1`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
-| 应用版本 | `1.2.2`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
+| 仓库 tag | `v0.3.2`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
+| 应用版本 | `1.2.3`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
 
 `install-dhcp.conf` 里：`VERSION` = 应用版本（决定资产文件名），`REPO_TAG` = 本仓库
 Release 标签（决定资产所在路径）。
@@ -46,7 +46,7 @@ Release 标签（决定资产所在路径）。
 `STB_MODE=capture` 需实体机顶盒可断电上电。
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.2/install.sh)
 ```
 
 - 无参数=交互向导；按提示选择机顶盒参数获取方式（RouterOS 抓包 / 手工）。
@@ -55,6 +55,21 @@ bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pv
 - 安装完成会显示：TiviMate `http://<管理IP>:8888/tv.m3u`、IPTV#
   `http://<管理IP>:8888/iptvsharp.m3u`、EPG `http://<管理IP>:8888/api/epg?daysAgo=7`。
 - CT 内 `iptv-spider-status` 会显示同样三个链接；管理菜单 `iptv-spider`。
+
+## 自动更新（已装节点）
+
+CT 内自带更新器，默认每天自动检测本仓库 Release 的应用包，有新版本就自动安装：
+
+```bash
+iptv-spider-update              # 检测并更新（有新版本才动）
+iptv-spider-update --check      # 只检测（有新版本时退出码 10）
+iptv-spider-update --status     # 本机版本 + 最近检测结果
+```
+
+管理菜单 `iptv-spider` 的 6/7 项可手动检查更新、切换"自动安装/仅检测/关闭定时"。
+更新只替换程序与脚本，保留 `config.yaml`、数据库、`eth1` 专网配置；先做 SHA256
+校验，再备份到 `*.update-backup.<时间戳>`（保留最近 3 份），启动不稳定则自动回滚。
+开关与说明见 `/etc/iptv-spider/update.conf` 与 `app/README_CN.md` 的「自动更新」。
 
 ## 自包含说明
 

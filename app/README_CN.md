@@ -189,6 +189,42 @@ add dst-address=124.75.28.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
 特别是 `124.75.26.0/24`：缺少这条路由时，部分节目会先报 401/404 或长时间加载，
 重试后才可能播放。安装程序不会自动修改 RouterOS 路由。
 
+## 自动更新（应用版本）
+
+CT 内自带更新器 `iptv-spider-update`：查本仓库 Release 里最新的
+`iptv-spider-app-<版本>-linux-amd64.tar.gz`，与本机 `/opt/sh-iptv-spider/VERSION`
+比较，有新版本才下载安装。
+
+```bash
+iptv-spider-update              # 检测并更新（有新版本才动）
+iptv-spider-update --check      # 只检测（有新版本时退出码 10）
+iptv-spider-update --dry-run    # 下载并校验，但不改动安装
+iptv-spider-update --status     # 本机版本 + 最近一次检测结果
+iptv-spider-update --version 1.2.4   # 切换到指定版本
+iptv-spider-update --disable-timer   # 关闭自动检测
+```
+
+也可以从管理菜单 `iptv-spider` 的 6/7 项操作。更新过程与覆盖升级同样安全：
+
+- 只替换程序与脚本，**保留 `config.yaml`、数据库、`eth1` 专网配置和 RouterOS 同步配置**；
+- 必须通过 Release 的 `.sha256` 校验（缺校验文件时告警并继续）；
+- 更新前在安装目录旁留 `*.update-backup.<时间戳>` 完整备份，默认保留最近 3 份；
+- 新版本 5 秒内不能稳定运行则自动回滚到旧版本，并返回非 0 退出码。
+
+默认启用每日自动检测（`iptv-spider-update.timer`，开机后每天 04:30 前后，含
+最多 30 分钟随机偏移），配置在 `/etc/iptv-spider/update.conf`：
+
+| 配置 | 含义 |
+|---|---|
+| `AUTO_UPDATE=1` | 检测到新版本自动安装（默认） |
+| `AUTO_UPDATE=0` | 只检测并记录，等人工执行 `iptv-spider-update` |
+| `KEEP_BACKUPS=3` | 保留的历史备份份数 |
+| `GITHUB_TOKEN` | 可选，GitHub API 限流时使用 |
+
+把 `AUTO_UPDATE` 改成 0 并保留定时器 = 每天自动检测、有人确认才升级；彻底停用：
+`systemctl disable --now iptv-spider-update.timer`。检测结果写在
+`/var/lib/iptv-spider/update-state`，`iptv-spider-status` 会显示。
+
 ## 更新
 
 升级前备份当前配置：

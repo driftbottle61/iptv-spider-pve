@@ -84,10 +84,24 @@ install_package_files() {
   systemctl daemon-reload
 }
 
+install_update_units() {
+  [ -f "$APP_DIR/update.sh" ] || return 0
+  install -m 0755 "$APP_DIR/update.sh" /usr/local/sbin/iptv-spider-update
+  install -m 0644 "$APP_DIR/systemd/iptv-spider-update.service" /etc/systemd/system/iptv-spider-update.service
+  install -m 0644 "$APP_DIR/systemd/iptv-spider-update.timer" /etc/systemd/system/iptv-spider-update.timer
+  if [ ! -f /etc/iptv-spider/update.conf ]; then
+    install -d -m 0755 /etc/iptv-spider
+    install -m 0644 "$APP_DIR/update.conf.example" /etc/iptv-spider/update.conf
+  fi
+  systemctl daemon-reload
+  systemctl enable --now iptv-spider-update.timer >/dev/null 2>&1 || true
+}
+
 upgrade_existing() {
   local stamp backup
   stamp=$(date +%Y%m%d%H%M%S)
-  backup="${APP_DIR}.upgrade-backup.${stamp}"
+  backup="${APP_DIR}.upgrade-backup.${stamp}.$$"
+  while [ -e "$backup" ]; do backup="${backup}x"; done
   echo "正在备份现有安装到 $backup ..."
   cp -a "$APP_DIR" "$backup"
   systemctl stop iptv-spider.service 2>/dev/null || true
@@ -102,6 +116,7 @@ upgrade_existing() {
   fi
   chmod 600 "$APP_DIR/config.yaml"
   systemctl enable iptv-spider.service >/dev/null
+  install_update_units
   if ! systemctl restart iptv-spider.service || ! timeout 30 bash -c '
     stable=0
     while [ "$stable" -lt 5 ]; do
@@ -628,6 +643,7 @@ if [ "$MYSQL_HOST" = '127.0.0.1' ] || [ "$MYSQL_HOST" = 'localhost' ]; then
 fi
 
 install_package_files
+install_update_units
 
 relay_yaml='[]'
 if [ -n "$RELAY_CLIENTS" ]; then
