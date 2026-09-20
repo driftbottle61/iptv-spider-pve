@@ -68,6 +68,19 @@ load_conf() {
 
 local_version() { cat "$APP_DIR/VERSION" 2>/dev/null || printf '未知'; }
 
+# 首次接管这台机器时补齐默认配置并启用每日自动检测。
+# 只在 update.conf 不存在时执行——配置已存在说明用户做过选择（关掉定时器或
+# 改成仅检测），之后不再触碰。安装路径与常规/自动运行都会调用，因此
+# 「先装上了更新器、随后一直是已是最新」的机器也能自动补上定时器。
+ensure_update_defaults() {
+  [ -f "$UPDATE_CONF" ] && return 0
+  [ -f "$APP_DIR/update.conf.example" ] || return 0
+  install -d -m 0755 "$(dirname -- "$UPDATE_CONF")"
+  install -m 0644 "$APP_DIR/update.conf.example" "$UPDATE_CONF"
+  systemctl enable --now "$TIMER_UNIT" >/dev/null 2>&1 || true
+  ok "已生成 $UPDATE_CONF 并启用每日自动检测"
+}
+
 # $1 > $2（按点分数字比较，兼容 1.10 > 1.9）
 version_gt() {
   [ "$1" != "$2" ] || return 1
@@ -166,14 +179,7 @@ install_files() {
   sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > "$SYSTEMD_DIR/iptv-spider.service"
   [ -f "$APP_DIR/config.yaml" ] && chmod 600 "$APP_DIR/config.yaml"
   systemctl daemon-reload
-  # 首次安装（还没有 update.conf）才生成配置并启用定时器；
-  # 之后不再触碰，避免把用户主动关闭的自动检测又打开。
-  if [ ! -f "$UPDATE_CONF" ] && [ -f "$APP_DIR/update.conf.example" ]; then
-    install -d -m 0755 "$(dirname -- "$UPDATE_CONF")"
-    install -m 0644 "$APP_DIR/update.conf.example" "$UPDATE_CONF"
-    systemctl enable --now "$TIMER_UNIT" >/dev/null 2>&1 || true
-    ok "已生成 $UPDATE_CONF 并启用每日自动检测"
-  fi
+  ensure_update_defaults
 }
 
 wait_stable() {
@@ -272,6 +278,7 @@ esac
 
 load_conf
 [ -d "$APP_DIR" ] || die "未找到安装目录：$APP_DIR"
+case "$MODE" in normal|auto) ensure_update_defaults ;; esac
 
 INDEX=$(fetch_index) || {
   warn "无法从 GitHub 获取版本列表（网络或 API 限流；仓库 $REPO）。本次未做任何改动。"

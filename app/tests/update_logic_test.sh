@@ -151,13 +151,29 @@ rc=$?
 set -e
 [ "$rc" -eq 0 ] || fail "已是最新时退出码应为 0，实际 $rc"
 printf '%s' "$out" | grep -q '已是最新版本' || fail "已是最新时输出异常：$out"
-echo 'ok: 已是最新时不动'
+[ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = 1 ] \
+  || fail '已存在 update.conf 时，常规运行不应重复启用定时器'
+echo 'ok: 已是最新时不动（且不重复启用定时器）'
+
+# ---- 4b) 缺 update.conf 的节点（靠更新器升级上来、一直是已是最新）应自动补齐 ----
+rm -f "$TMP/update.conf"
+set +e
+run_update > "$TMP/update2.log" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$TMP/update2.log"; fail '缺配置时常规运行应正常结束'; }
+[ -f "$TMP/update.conf" ] || fail '缺少 update.conf 时未自动生成'
+grep -q 'enable --now iptv-spider-update.timer' "$TMP/update2.log" || {
+  [ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = 2 ] \
+    || fail '缺少 update.conf 时未启用定时器'; }
+echo 'ok: 缺 update.conf 的节点自动补齐配置与定时器'
 
 # ---- 5) 服务起不来 → 自动回滚 ----
 make_package 3.0.0 "$TMP/iptv-spider-app-3.0.0-linux-amd64.tar.gz"
 export FAKE_ARCHIVE="$TMP/iptv-spider-app-3.0.0-linux-amd64.tar.gz"
 write_api_json "$NEW_VERSION 3.0.0" "$TMP/api3.json"
 export FAKE_API_JSON="$TMP/api3.json"
+enable_count_before=$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")
 set +e
 out=$(FAKE_SYSTEMCTL_FAIL=restart run_update 2>&1)
 rc=$?
@@ -167,7 +183,7 @@ printf '%s' "$out" | grep -q '回滚' || fail "未提示回滚：$out"
 [ "$(cat "$APP_DIR/VERSION")" = "$NEW_VERSION" ] || fail '回滚后版本不是更新前的版本'
 grep -q 'KEEP-ME' "$APP_DIR/config.yaml" || fail '回滚后 config.yaml 丢失'
 grep -q 'result=failed' "$TMP/state/update-state" || fail '状态未记录 failed'
-[ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = 1 ] \
+[ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = "$enable_count_before" ] \
   || fail '已存在 update.conf 时不应重复启用定时器'
 echo 'ok: 启动失败自动回滚'
 
