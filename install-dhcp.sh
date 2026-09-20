@@ -60,8 +60,8 @@ ROUTER_IFACE=${ROUTER_IFACE:-ether3_lan}
 CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
-VERSION=${VERSION:-1.2.5}                # 应用版本：决定发行资产文件名
-REPO_TAG=${REPO_TAG:-v0.3.4}             # 本仓库 Release 标签：决定资产所在路径
+VERSION=${VERSION:-1.2.6}                # 应用版本：决定发行资产文件名
+REPO_TAG=${REPO_TAG:-v0.3.5}             # 本仓库 Release 标签：决定资产所在路径
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 # 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
 PKG_TMPDIR=''

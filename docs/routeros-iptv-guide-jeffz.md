@@ -22,7 +22,7 @@ iptv-spider-pve 采用 DHCP-direct 架构：RouterOS 侧只承担二层接入—
 README）。
 
 因此，把上面这段"二层链路"在 RouterOS 上打通，是运行一键安装
-（`bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.4/install.sh)`）
+（`bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.5/install.sh)`）
 之前 RouterOS 侧的必备前提。下面 jeffz 的文章正文正是这一段的可执行参考。
 
 ---

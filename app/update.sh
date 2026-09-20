@@ -128,7 +128,8 @@ stage_package() {
   STAGE_DIR=$work
   archive="iptv-spider-app-${ver}-linux-amd64.tar.gz"
   log "正在下载 iptv-spider-app-${ver} ..."
-  curl -fL --retry 3 --retry-delay 2 -o "$work/$archive" "$url" || die "下载失败：$url"
+  # --no-progress-meter：定时器在无人值守下运行，进度条只会把 journal 刷满
+  curl -fsSL --no-progress-meter --retry 3 --retry-delay 2 -o "$work/$archive" "$url" || die "下载失败：$url"
   if curl -fsL --max-time 30 -o "$work/$archive.sha256" "$url.sha256"; then
     (cd "$work" && sha256sum -c "$archive.sha256" >/dev/null) || die 'SHA256 校验失败，已中止。'
     ok 'SHA256 校验通过'
