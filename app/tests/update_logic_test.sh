@@ -140,7 +140,9 @@ grep -q 'available_version=' "$TMP/state/update-state" || fail '未写更新状�
 grep -q 'result=updated' "$TMP/state/update-state" || fail '状态未记录 updated'
 grep -q '^available_version=$' "$TMP/state/update-state" || fail '更新完成后不应再记录“有新版本”'
 ls -d "$APP_DIR".update-backup.* >/dev/null 2>&1 || fail '未生成更新前备份'
-echo 'ok: 正常更新（保留配置 + 安装文件 + 重启 + 备份 + 状态）'
+[ -f "$TMP/update.conf" ] || fail '首次更新未生成 update.conf'
+grep -q 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG" || fail '首次更新未启用更新定时器'
+echo 'ok: 正常更新（保留配置 + 安装文件 + 重启 + 备份 + 状态 + 启用定时器）'
 
 # ---- 4) 已是最新：不动、以 0 退出 ----
 set +e
@@ -165,6 +167,8 @@ printf '%s' "$out" | grep -q '回滚' || fail "未提示回滚：$out"
 [ "$(cat "$APP_DIR/VERSION")" = "$NEW_VERSION" ] || fail '回滚后版本不是更新前的版本'
 grep -q 'KEEP-ME' "$APP_DIR/config.yaml" || fail '回滚后 config.yaml 丢失'
 grep -q 'result=failed' "$TMP/state/update-state" || fail '状态未记录 failed'
+[ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = 1 ] \
+  || fail '已存在 update.conf 时不应重复启用定时器'
 echo 'ok: 启动失败自动回滚'
 
 echo 'update logic tests passed'

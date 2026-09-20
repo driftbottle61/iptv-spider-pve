@@ -89,12 +89,13 @@ install_update_units() {
   install -m 0755 "$APP_DIR/update.sh" /usr/local/sbin/iptv-spider-update
   install -m 0644 "$APP_DIR/systemd/iptv-spider-update.service" /etc/systemd/system/iptv-spider-update.service
   install -m 0644 "$APP_DIR/systemd/iptv-spider-update.timer" /etc/systemd/system/iptv-spider-update.timer
+  systemctl daemon-reload
+  # 只在首次安装时生成配置并启用定时器；已存在配置说明用户已做过选择，不再打扰。
   if [ ! -f /etc/iptv-spider/update.conf ]; then
     install -d -m 0755 /etc/iptv-spider
     install -m 0644 "$APP_DIR/update.conf.example" /etc/iptv-spider/update.conf
+    systemctl enable --now iptv-spider-update.timer >/dev/null 2>&1 || true
   fi
-  systemctl daemon-reload
-  systemctl enable --now iptv-spider-update.timer >/dev/null 2>&1 || true
 }
 
 upgrade_existing() {

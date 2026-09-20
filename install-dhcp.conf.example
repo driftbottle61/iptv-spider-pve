@@ -57,6 +57,6 @@ MYSQL_PASSWORD=
 
 # ---- 发行包来源：auto=脚本同目录有完整发行包则用本地，否则 GitHub ----
 INSTALL_SOURCE=auto
-VERSION=1.2.4
-REPO_TAG=v0.3.3
+VERSION=1.2.5
+REPO_TAG=v0.3.4
 REPOSITORY=driftbottle61/iptv-spider-pve

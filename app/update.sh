@@ -165,6 +165,14 @@ install_files() {
   sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > "$SYSTEMD_DIR/iptv-spider.service"
   [ -f "$APP_DIR/config.yaml" ] && chmod 600 "$APP_DIR/config.yaml"
   systemctl daemon-reload
+  # 首次安装（还没有 update.conf）才生成配置并启用定时器；
+  # 之后不再触碰，避免把用户主动关闭的自动检测又打开。
+  if [ ! -f "$UPDATE_CONF" ] && [ -f "$APP_DIR/update.conf.example" ]; then
+    install -d -m 0755 "$(dirname -- "$UPDATE_CONF")"
+    install -m 0644 "$APP_DIR/update.conf.example" "$UPDATE_CONF"
+    systemctl enable --now "$TIMER_UNIT" >/dev/null 2>&1 || true
+    ok "已生成 $UPDATE_CONF 并启用每日自动检测"
+  fi
 }
 
 wait_stable() {
