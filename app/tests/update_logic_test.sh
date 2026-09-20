@@ -154,6 +154,17 @@ printf '%s' "$out" | grep -q '本机应用版本：'"$NEW_VERSION" || fail "--st
 printf '%s' "$out" | grep -q '最近检测时间：[0-9]' || fail "--status 未读出检测时间：$out"
 echo 'ok: --status 正常输出'
 
+# ---- 3d) --list 列出可用版本并标记当前版本 ----
+set +e
+out=$(run_update --list 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "--list 退出码应为 0，实际 $rc：$out"
+printf '%s' "$out" | grep -q "可用版本（本机当前：$NEW_VERSION）" || fail "--list 未显示本机版本：$out"
+printf '%s' "$out" | grep -q "$APP_VERSION" || fail "--list 未列出 $APP_VERSION：$out"
+printf '%s' "$out" | grep -q '←当前' || fail "--list 未标记当前版本：$out"
+echo 'ok: --list 列出版本'
+
 # ---- 3c) AUTO_UPDATE=0：定时器只报告不安装，且必须以 0 退出（否则 systemd 记 failed）----
 printf 'AUTO_UPDATE=0\n' > "$TMP/update.conf"
 printf '%s\n' "$APP_VERSION" > "$APP_DIR/VERSION"

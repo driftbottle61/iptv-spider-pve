@@ -106,6 +106,48 @@ update_menu() {
   fi
 }
 
+manual_upgrade_menu() {
+  local current output choice
+  if [ ! -x "$UPDATE_CMD" ]; then
+    echo '未找到更新命令，请先覆盖升级到含自动更新功能的版本。'
+    return 1
+  fi
+  current=$(cat "$APP_DIR/VERSION" 2>/dev/null || printf '未知')
+  echo '手动升级'
+  echo '------------------------------------------------------------'
+  echo "  当前版本：$current"
+  echo '  正在获取可用版本列表...'
+  if ! output=$("$UPDATE_CMD" --list 2>&1); then
+    printf '%s\n' "$output"
+    echo '获取版本列表失败（网络或 GitHub 访问异常）。'
+    return 1
+  fi
+  printf '%s\n' "$output"
+  echo '------------------------------------------------------------'
+  read -r -p '输入要安装的版本号（回车=升级到最新，q=取消）：' choice
+  case "$choice" in
+    q|Q) echo '已取消。'; return 0 ;;
+    '')
+      if "$UPDATE_CMD"; then
+        echo '升级完成。'
+      else
+        echo '升级失败；若已安装新版本，安装器已自动回滚到升级前版本。'
+        return 1
+      fi
+      ;;
+    *)
+      if "$UPDATE_CMD" --version "$choice"; then
+        echo "已安装版本 $choice。"
+      else
+        echo "安装 $choice 失败；若已装过新版本，安装器已自动回滚。"
+        return 1
+      fi
+      ;;
+  esac
+  echo
+  "$STATUS_CMD" --skip-replay || true
+}
+
 auto_update_menu() {
   local current timer_state choice answer
   current=$(sed -n 's/^AUTO_UPDATE=\([0-9][0-9]*\).*/\1/p' "$UPDATE_CONF" 2>/dev/null | tail -n 1)
@@ -266,9 +308,10 @@ while :; do
   echo '  5、卸载'
   echo '  6、检查更新'
   echo '  7、自动更新设置'
+  echo '  8、手动升级'
   echo '  0、退出'
   echo '------------------------------------------------------------'
-  read -r -p '请选择 [0-7]：' choice
+  read -r -p '请选择 [0-8]：' choice
   case "$choice" in
     1) "$STATUS_CMD" || true ;;
     2) manual_fetch ;;
@@ -283,10 +326,11 @@ while :; do
       ;;
     6) update_menu ;;
     7) auto_update_menu ;;
+    8) manual_upgrade_menu ;;
     0)
       echo '已退出管理菜单，IPTV Spider 服务保持运行。'
       exit 0
       ;;
-    *) echo '输入无效，请输入 0 到 7。' ;;
+    *) echo '输入无效，请输入 0 到 8。' ;;
   esac
 done

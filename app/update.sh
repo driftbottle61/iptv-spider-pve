@@ -13,6 +13,7 @@
 #   iptv-spider-update --force           版本相同也重装一次
 #   iptv-spider-update --version 1.2.4   安装指定的应用版本
 #   iptv-spider-update --status          显示本机版本与最近一次检测结果
+#   iptv-spider-update --list            列出 Release 里所有可安装的应用版本
 #   iptv-spider-update --auto            供 systemd 定时器调用（按 update.conf 决定是否安装）
 #   iptv-spider-update --enable-timer    启用每日自动检测定时器
 #   iptv-spider-update --disable-timer   关闭自动检测定时器
@@ -45,7 +46,7 @@ ok()   { printf '  ✓ %s\n' "$*"; }
 warn() { printf '警告：%s\n' "$*" >&2; }
 die()  { printf '错误：%s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     --force) MODE=force; shift ;;
     --auto) MODE=auto; shift ;;
     --status) MODE=status; shift ;;
+    --list) MODE=list; shift ;;
     --version) TARGET_VERSION=${2:-}; [ -n "$TARGET_VERSION" ] || die '--version 需要版本号，例如 --version 1.2.4'; shift 2 ;;
     --enable-timer) MODE=enable-timer; shift ;;
     --disable-timer) MODE=disable-timer; shift ;;
@@ -307,6 +309,19 @@ case "$CUR_VERSION" in
   ''|*[!0-9.]*|*..*|.*) CUR_VERSION='' ;;
 esac
 CUR_LABEL=${CUR_VERSION:-未知}
+
+if [ "$MODE" = list ]; then
+  echo "可用版本（本机当前：$CUR_LABEL）："
+  printf '%s\n' "$INDEX" | sort -V -r | while IFS=$'\t' read -r ver _url; do
+    [ -n "$ver" ] || continue
+    if [ "$ver" = "$CUR_VERSION" ]; then
+      printf '    %-10s←当前\n' "$ver"
+    else
+      printf '    %-10s\n' "$ver"
+    fi
+  done
+  exit 0
+fi
 
 if [ "$MODE" = check ]; then
   if version_gt "$NEW_VERSION" "$CUR_VERSION"; then
