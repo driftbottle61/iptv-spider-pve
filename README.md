@@ -66,7 +66,9 @@ iptv-spider-update --check      # 只检测（有新版本时退出码 10）
 iptv-spider-update --status     # 本机版本 + 最近检测结果
 ```
 
-管理菜单 `iptv-spider` 的 6/7 项可手动检查更新、切换"自动安装/仅检测/关闭定时"。
+管理菜单 `iptv-spider` 的 6/7/8 项分别是「检查更新」「自动更新设置」「手动升级」：
+后者会列出 Release 里所有可安装版本（标记当前版本），回车升级到最新，也可输入
+版本号安装指定版本（固定版本或回退）。
 更新只替换程序与脚本，保留 `config.yaml`、数据库、`eth1` 专网配置；先做 SHA256
 校验，再备份到 `*.update-backup.<时间戳>`（保留最近 3 份），启动不稳定则自动回滚。
 开关与说明见 `/etc/iptv-spider/update.conf` 与 `app/README_CN.md` 的「自动更新」。

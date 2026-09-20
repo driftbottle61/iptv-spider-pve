@@ -204,7 +204,11 @@ iptv-spider-update --version 1.2.4   # 切换到指定版本
 iptv-spider-update --disable-timer   # 关闭自动检测
 ```
 
-也可以从管理菜单 `iptv-spider` 的 6/7 项操作。更新过程与覆盖升级同样安全：
+`iptv-spider-update --list` 会列出 Release 里所有可安装版本（标记当前版本）。
+也可以从管理菜单 `iptv-spider` 操作：「6 检查更新」（检测→确认→升级）、
+「7 自动更新设置」（自动安装 / 仅检测 / 关闭定时）、「8 手动升级」（列出全部版本，
+回车升级到最新，或输入版本号安装指定版本，可用于固定版本或回退）。
+更新过程与覆盖升级同样安全：
 
 - 只替换程序与脚本，**保留 `config.yaml`、数据库、`eth1` 专网配置和 RouterOS 同步配置**；
 - 必须通过 Release 的 `.sha256` 校验（缺校验文件时告警并继续）；
