@@ -328,8 +328,10 @@ fi
 
 if [ "$MODE" = auto ] && [ "$AUTO_UPDATE" != 1 ]; then
   write_state 'update-available' "$NEW_VERSION"
-  echo "发现新版本：$CUR_LABEL → $NEW_VERSION（AUTO_UPDATE=0，未自动安装）"
-  exit 10
+  # 定时器路径：只是"有新版本但按配置不装"，不是错误，退 0 以免 systemd 把单元
+  # 标成 failed（需要退出码的场景请用 --check，它仍然返回 10）。
+  echo "发现新版本：$CUR_LABEL → $NEW_VERSION（AUTO_UPDATE=0，未自动安装；执行 iptv-spider-update 更新）"
+  exit 0
 fi
 
 log "准备更新：$CUR_LABEL → $NEW_VERSION"

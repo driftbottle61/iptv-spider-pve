@@ -154,6 +154,21 @@ printf '%s' "$out" | grep -q '本机应用版本：'"$NEW_VERSION" || fail "--st
 printf '%s' "$out" | grep -q '最近检测时间：[0-9]' || fail "--status 未读出检测时间：$out"
 echo 'ok: --status 正常输出'
 
+# ---- 3c) AUTO_UPDATE=0：定时器只报告不安装，且必须以 0 退出（否则 systemd 记 failed）----
+printf 'AUTO_UPDATE=0\n' > "$TMP/update.conf"
+printf '%s\n' "$APP_VERSION" > "$APP_DIR/VERSION"
+set +e
+out=$(run_update --auto 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "AUTO_UPDATE=0 时 --auto 应以 0 退出（systemd 单元不能失败），实际 $rc：$out"
+printf '%s' "$out" | grep -q '未自动安装' || fail "AUTO_UPDATE=0 未说明未安装：$out"
+[ "$(cat "$APP_DIR/VERSION")" = "$APP_VERSION" ] || fail 'AUTO_UPDATE=0 时不应安装'
+grep -q 'result=update-available' "$TMP/state/update-state" || fail 'AUTO_UPDATE=0 未记录有新版本'
+printf 'AUTO_UPDATE=1\n' > "$TMP/update.conf"
+printf '%s\n' "$NEW_VERSION" > "$APP_DIR/VERSION"
+echo 'ok: AUTO_UPDATE=0 时定时器只报告不安装且退 0'
+
 # ---- 4) 已是最新：不动、以 0 退出 ----
 set +e
 out=$(run_update 2>&1)

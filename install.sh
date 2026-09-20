@@ -6,7 +6,7 @@
 # 否则只从本仓库 Release 取应用包（iptv-spider-app-<ver>-linux-amd64.tar.gz）。
 set -euo pipefail
 
-VERSION=${IPTV_SPIDER_PVE_VERSION:-v0.3.7}
+VERSION=${IPTV_SPIDER_PVE_VERSION:-v0.3.8}
 REPO=driftbottle61/iptv-spider-pve
 
 usage() {
@@ -14,10 +14,10 @@ usage() {
 iptv-spider-pve 一键安装引导（PVE 侧，单仓库自包含）
 
 在 Proxmox VE Shell 以 root 运行：
-  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.7/install.sh)
+  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.8/install.sh)
     （无参数=交互向导：扫描空闲 CT/IP 建议值、机顶盒抓包/手工、冲突重输）
   参数化方式：
-  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.7/install.sh) \
+  bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.8/install.sh) \
     --answers /root/install-dhcp.conf --vmid 118 --hostname iptv-spider \
     --mgmt-ip 192.168.100.93 --mgmt-gw 192.168.100.1 \
     --ssh-pubkey /tmp/id_ed25519.pub
