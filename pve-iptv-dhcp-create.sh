@@ -284,7 +284,7 @@ wizard_make_answers() {
     printf "SOURCE_M3U=\nUDPXY='%s'\nCATCHUP_DAYS=%s\nRELAY_CLIENTS=\n" "$udpxy" "$CATCHUP_DAYS"
     printf "MYSQL_HOST=127.0.0.1\nMYSQL_DB=iptv\nMYSQL_USER=iptv\nMYSQL_PASSWORD=%q\n" "$dbpass"
     printf "ROOT_PASSWORD=%q\n" "$ROOT_PASSWORD"
-    printf "INSTALL_SOURCE=auto\nVERSION=1.2.7\nREPO_TAG=v0.3.6\nREPOSITORY=driftbottle61/iptv-spider-pve\n"
+    printf "INSTALL_SOURCE=auto\nVERSION=1.2.8\nREPO_TAG=v0.3.7\nREPOSITORY=driftbottle61/iptv-spider-pve\n"
   } > "$wanswer"
   chmod 600 "$wanswer"
   ANSWERS_TMP=$wanswer

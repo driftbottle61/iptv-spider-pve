@@ -37,6 +37,8 @@ AUTO_UPDATE=1
 
 MODE=normal
 TARGET_VERSION=''
+STAGE_DIR=''
+trap 'rm -rf "${STAGE_DIR:-}"' EXIT
 
 log()  { printf '%s\n' "$*"; }
 ok()   { printf '  ✓ %s\n' "$*"; }
@@ -243,22 +245,27 @@ do_install() {
 }
 
 show_status() {
+  local checked result avail next_run
   echo 'IPTV Spider 更新状态'
   echo '------------------------------------------------------------'
   echo "  本机应用版本：$(local_version)"
   echo "  安装目录：$APP_DIR"
   echo "  更新源仓库：$REPO"
   if [ -r "$STATE_FILE" ]; then
-    # shellcheck disable=SC1090
-    . "$STATE_FILE"
-    echo "  最近检测时间：${checked_at:-未知}"
+    # 逐行取键值：状态文件里的时间戳带空格，. 进 shell 会被当成命令执行
+    checked=$(sed -n 's/^checked_at=//p' "$STATE_FILE" | head -n 1)
+    result=$(sed -n 's/^result=//p' "$STATE_FILE" | head -n 1)
+    avail=$(sed -n 's/^available_version=//p' "$STATE_FILE" | head -n 1)
+    echo "  最近检测时间：${checked:-未知}"
     echo "  最近检测结果：${result:-未知}"
-    [ -n "${available_version:-}" ] && echo "  最近发现版本：${available_version}"
+    [ -n "$avail" ] && echo "  最近发现版本：$avail"
   else
     echo '  最近检测时间：尚未检测过'
   fi
   if systemctl is-enabled --quiet "$TIMER_UNIT" 2>/dev/null; then
-    echo "  自动检测定时器：已启用（下次 $(systemctl list-timers "$TIMER_UNIT" --no-pager 2>/dev/null | awk 'NR==1{print $1" "$2" "$3}')）"
+    next_run=$(systemctl list-timers "$TIMER_UNIT" --no-pager 2>/dev/null \
+      | awk 'NR==2 && $0 !~ /timers listed/ {print $1" "$2" "$3}')
+    echo "  自动检测定时器：已启用${next_run:+（下次 $next_run）}"
   else
     echo '  自动检测定时器：未启用'
   fi
@@ -295,32 +302,37 @@ else
 fi
 
 CUR_VERSION=$(local_version)
+# VERSION 缺失/损坏时不做版本比较，直接走安装
+case "$CUR_VERSION" in
+  ''|*[!0-9.]*|*..*|.*) CUR_VERSION='' ;;
+esac
+CUR_LABEL=${CUR_VERSION:-未知}
 
 if [ "$MODE" = check ]; then
   if version_gt "$NEW_VERSION" "$CUR_VERSION"; then
     write_state 'update-available' "$NEW_VERSION"
-    echo "发现新版本：$CUR_VERSION → $NEW_VERSION"
+    echo "发现新版本：$CUR_LABEL → $NEW_VERSION"
     echo '执行 iptv-spider-update 即可更新。'
     exit 10
   fi
   write_state 'up-to-date' ''
-  echo "已是最新版本（$CUR_VERSION）。"
+  echo "已是最新版本（$CUR_LABEL）。"
   exit 0
 fi
 
 if [ "$MODE" != force ] && [ -z "$TARGET_VERSION" ] && ! version_gt "$NEW_VERSION" "$CUR_VERSION"; then
   write_state 'up-to-date' ''
-  echo "已是最新版本（$CUR_VERSION）。"
+  echo "已是最新版本（$CUR_LABEL）。"
   exit 0
 fi
 
 if [ "$MODE" = auto ] && [ "$AUTO_UPDATE" != 1 ]; then
   write_state 'update-available' "$NEW_VERSION"
-  echo "发现新版本：$CUR_VERSION → $NEW_VERSION（AUTO_UPDATE=0，未自动安装）"
+  echo "发现新版本：$CUR_LABEL → $NEW_VERSION（AUTO_UPDATE=0，未自动安装）"
   exit 10
 fi
 
-log "准备更新：$CUR_VERSION → $NEW_VERSION"
+log "准备更新：$CUR_LABEL → $NEW_VERSION"
 stage_package "$NEW_VERSION" "$ASSET_URL"
 
 if [ "$MODE" = dryrun ]; then

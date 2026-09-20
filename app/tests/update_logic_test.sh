@@ -144,6 +144,16 @@ ls -d "$APP_DIR".update-backup.* >/dev/null 2>&1 || fail '未生成更新前备�
 grep -q 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG" || fail '首次更新未启用更新定时器'
 echo 'ok: 正常更新（保留配置 + 安装文件 + 重启 + 备份 + 状态 + 启用定时器）'
 
+# ---- 3b) --status 正常输出（状态文件时间戳带空格，曾被 source 当命令执行）----
+set +e
+out=$(run_update --status 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "--status 退出码应为 0，实际 $rc：$out"
+printf '%s' "$out" | grep -q '本机应用版本：'"$NEW_VERSION" || fail "--status 未显示版本：$out"
+printf '%s' "$out" | grep -q '最近检测时间：[0-9]' || fail "--status 未读出检测时间：$out"
+echo 'ok: --status 正常输出'
+
 # ---- 4) 已是最新：不动、以 0 退出 ----
 set +e
 out=$(run_update 2>&1)
@@ -167,6 +177,17 @@ grep -q 'enable --now iptv-spider-update.timer' "$TMP/update2.log" || {
   [ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = 2 ] \
     || fail '缺少 update.conf 时未启用定时器'; }
 echo 'ok: 缺 update.conf 的节点自动补齐配置与定时器'
+
+# ---- 4c) VERSION 缺失/损坏时按“有版本可装”处理，而不是误报已是最新 ----
+rm -f "$APP_DIR/VERSION"
+set +e
+out=$(run_update --check 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 10 ] || fail "VERSION 缺失时应报告可安装，实际退出码 $rc：$out"
+printf '%s' "$out" | grep -q '发现新版本：未知' || fail "VERSION 缺失时提示异常：$out"
+printf '%s\n' "$NEW_VERSION" > "$APP_DIR/VERSION"
+echo 'ok: VERSION 缺失时不误报已是最新'
 
 # ---- 5) 服务起不来 → 自动回滚 ----
 make_package 3.0.0 "$TMP/iptv-spider-app-3.0.0-linux-amd64.tar.gz"
