@@ -145,7 +145,7 @@ write_hooks() {
 #!/bin/sh
 # IPTV 租约只用于专网：不改默认路由、不动 resolv.conf；记下租约网关供 exit hook 使用。
 case "$reason" in
-BOUND|RENEW|REBIND|RECOVER)
+BOUND|RENEW|REBIND|RECOVER|REBOOT)
 	interface="${interface:-eth1}"
 	gw="${new_routers:-$new_dhcp_server_identifier}"
 	[ -n "$gw" ] && printf '%s\n' "$gw" > "/run/iptv-lease-gw-$interface"
@@ -164,7 +164,7 @@ interface="${interface:-eth1}"
 IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
 SYNC_CONF=/etc/iptv-spider/dhcp-direct.conf
 case "$reason" in
-BOUND|RENEW|REBIND|RECOVER)
+BOUND|RENEW|REBIND|RECOVER|REBOOT)
 	[ -n "${new_ip_address:-}" ] || return 0
 	gw="$(cat "/run/iptv-lease-gw-$interface" 2>/dev/null)"
 	[ -n "$gw" ] || return 0
