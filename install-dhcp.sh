@@ -14,6 +14,7 @@
 #
 # 用法：
 #   bash install-dhcp.sh <answers.conf>
+#   bash install-dhcp.sh --network-only    # 仅修复/升级已有节点的网络层
 #
 # answers.conf 为 shell 格式 KEY=value（见 install-dhcp.conf.example）。
 # 本脚本可从安装目录直接运行（自动使用同目录发行包），也可通过
@@ -22,11 +23,33 @@
 # （RouterOS 抓包需要输入并等待重启实体机顶盒）。
 set -euo pipefail
 
-ANSWERS_FILE=${1:-/root/install-dhcp.conf}
-if [ ! -r "$ANSWERS_FILE" ]; then
-  echo "找不到参数文件：$ANSWERS_FILE" >&2
-  exit 1
-fi
+REQUESTED_ETH1_IF=${ETH1_IF:-}
+
+usage() {
+  cat <<'HELP'
+用法：
+  bash install-dhcp.sh <answers.conf>
+  bash install-dhcp.sh --network-only [answers.conf]
+
+--network-only 只重装/修复 eth1 DHCP、专网路由 hook、systemd 服务和 watchdog，
+不改应用、config.yaml 或数据库。用于升级已有节点，避免旧版
+networking.service 在 IP 变化时因启动顺序死锁而杀掉 dhclient。
+可通过 ETH1_IF 环境变量覆盖接口名（默认 eth1）。
+HELP
+}
+
+NETWORK_ONLY=0
+ANSWERS_FILE=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --network-only) NETWORK_ONLY=1; shift ;;
+    --) shift; [ "$#" -gt 0 ] && ANSWERS_FILE=$1; break ;;
+    -*) echo "未知参数：$1" >&2; usage >&2; exit 2 ;;
+    *) ANSWERS_FILE=$1; shift ;;
+  esac
+done
+ANSWERS_FILE=${ANSWERS_FILE:-/root/install-dhcp.conf}
 
 # ---- defaults ----
 APP_DIR=${APP_DIR:-/opt/sh-iptv-spider}
@@ -61,7 +84,7 @@ CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
 VERSION=${VERSION:-1.3.0}                # 应用版本：决定发行资产文件名
-REPO_TAG=${REPO_TAG:-v0.3.9}             # 本仓库 Release 标签：决定资产所在路径
+REPO_TAG=${REPO_TAG:-v0.3.10}            # 本仓库 Release 标签：决定资产所在路径
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 # 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
 PKG_TMPDIR=''
@@ -69,23 +92,33 @@ trap 'rm -rf "${PKG_TMPDIR:-}"' EXIT
 SYNC_CONF=/etc/iptv-spider/dhcp-direct.conf
 IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
 
-# ---- load answers ----
-. "$ANSWERS_FILE"
-
 [ "$(id -u)" -eq 0 ] || { echo '请以 root 运行。' >&2; exit 1; }
-required_keys='LAN_IP MYSQL_PASSWORD'
-if [ "$STB_MODE" != capture ]; then
-  required_keys="$required_keys STB_UID STB_MAC STB_SN"
-fi
-for key in $required_keys; do
-  if [ -z "${!key:-}" ]; then
-    echo "参数文件缺少必需字段：$key" >&2
+
+if [ "$NETWORK_ONLY" -eq 0 ]; then
+  if [ ! -r "$ANSWERS_FILE" ]; then
+    echo "找不到参数文件：$ANSWERS_FILE" >&2
     exit 1
   fi
-done
-case "$PORT" in
-  ''|*[!0-9]*) echo "PORT 无效：$PORT" >&2; exit 1 ;;
-esac
+  . "$ANSWERS_FILE"
+  required_keys='LAN_IP MYSQL_PASSWORD'
+  if [ "$STB_MODE" != capture ]; then
+    required_keys="$required_keys STB_UID STB_MAC STB_SN"
+  fi
+  for key in $required_keys; do
+    if [ -z "${!key:-}" ]; then
+      echo "参数文件缺少必需字段：$key" >&2
+      exit 1
+    fi
+  done
+  case "$PORT" in
+    ''|*[!0-9]*) echo "PORT 无效：$PORT" >&2; exit 1 ;;
+  esac
+elif [ -r /etc/iptv-spider/dhcp-direct.conf ]; then
+  . /etc/iptv-spider/dhcp-direct.conf
+fi
+if [ -n "$REQUESTED_ETH1_IF" ]; then
+  ETH1_IF=$REQUESTED_ETH1_IF
+fi
 
 log()  { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    %s\n' "$*"; }
@@ -130,13 +163,12 @@ write_interfaces() {
   {
     cat "$tmp"
     printf '\n# BEGIN IPTV-SPIDER DHCP\n'
-    printf 'auto %s\n' "$ETH1_IF"
-    printf 'iface %s inet dhcp\n' "$ETH1_IF"
-    printf '\tpre-up ip link set dev %s up\n' "$ETH1_IF"
+    printf '# %s DHCP is managed by iptv-dhcp.service (dhclient -4 -d -v %s)\n' "$ETH1_IF" "$ETH1_IF"
+    printf 'iface %s inet manual\n' "$ETH1_IF"
     printf '# END IPTV-SPIDER DHCP\n'
   } > "$file"
   rm -f "$tmp"
-  ok "已写入 /etc/network/interfaces：$ETH1_IF = inet dhcp（标记段 IPTV-SPIDER DHCP）"
+  ok "已写入 /etc/network/interfaces：$ETH1_IF = inet manual（DHCP 交给 iptv-dhcp.service）"
 }
 
 write_hooks() {
@@ -180,7 +212,8 @@ BOUND|RENEW|REBIND|RECOVER|REBOOT)
 	if [ -n "$old_ip" ] && [ "$old_ip" != "$new_ip_address" ]; then
 		sed -i "s/^\([[:space:]]*ip:[[:space:]]*'\)[^']*\('\)/\1$new_ip_address\2/" "$APP_DIR/config.yaml" 2>/dev/null
 		logger -t iptv-dhcp "$reason: config.yaml stb.ip $old_ip -> $new_ip_address"
-		systemctl restart iptv-spider 2>/dev/null || true
+		# 不阻塞 dhclient：避免 systemctl 等待 iptv-spider 时反向卡住网络启动链。
+		systemctl --no-block restart iptv-spider 2>/dev/null || true
 	fi
 	;;
 EXPIRE|RELEASE|FAIL|STOP)
@@ -204,6 +237,107 @@ EOF
   ok "已写入 dhclient hooks 与 $SYNC_CONF"
 }
 
+write_network_units() {
+  install -d -m 0755 /etc/systemd/system/iptv-spider.service.d
+
+  cat > /etc/systemd/system/iptv-dhcp.service <<EOF
+[Unit]
+Description=IPTV VLAN85 DHCP client ($ETH1_IF)
+Documentation=man:dhclient(8)
+After=network-pre.target
+Wants=network-pre.target
+Before=iptv-spider.service
+RequiresMountsFor=/run
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/ip link set dev $ETH1_IF up
+ExecStart=/sbin/dhclient -4 -d -v $ETH1_IF
+Restart=always
+RestartSec=5
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > /etc/systemd/system/iptv-spider.service.d/10-iptv-dhcp.conf <<'EOF'
+[Unit]
+Wants=iptv-dhcp.service
+After=iptv-dhcp.service
+EOF
+
+  cat > /usr/local/sbin/iptv-network-watchdog <<'WATCHDOG'
+#!/bin/sh
+set -u
+
+IFACE=__IPTV_IFACE__
+IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
+ipv4="$(ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null | awk 'NR==1 {sub(/\/.*/, "", $4); print $4}')"
+missing=''
+
+for net in $IPTV_NETS; do
+	ip route show "$net" 2>/dev/null | grep -q "dev $IFACE" || missing="$missing $net"
+done
+
+restart_dhcp=0
+if ! systemctl is-active --quiet iptv-dhcp.service; then
+	restart_dhcp=1
+elif ! pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${IFACE}$" >/dev/null 2>&1; then
+	restart_dhcp=1
+elif [ -n "$ipv4" ]; then
+	case "$ipv4" in
+	30.181.*) ;;
+	*) restart_dhcp=1 ;;
+	esac
+	[ -n "$missing" ] && restart_dhcp=1
+fi
+
+if [ "$restart_dhcp" -eq 1 ]; then
+	logger -t iptv-watchdog "unhealthy: ip=${ipv4:-none} missing_routes=${missing:-none}; restarting iptv-dhcp"
+	systemctl restart iptv-dhcp.service
+	exit 0
+fi
+
+if ! systemctl is-active --quiet iptv-spider.service; then
+	logger -t iptv-watchdog 'iptv-spider is inactive; restarting'
+	systemctl restart iptv-spider.service
+fi
+WATCHDOG
+  sed -i "s|__IPTV_IFACE__|$ETH1_IF|g" /usr/local/sbin/iptv-network-watchdog
+  chmod 0755 /usr/local/sbin/iptv-network-watchdog
+
+  cat > /etc/systemd/system/iptv-network-watchdog.service <<'EOF'
+[Unit]
+Description=IPTV network health watchdog
+After=iptv-dhcp.service
+Wants=iptv-dhcp.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/iptv-network-watchdog
+EOF
+
+  cat > /etc/systemd/system/iptv-network-watchdog.timer <<'EOF'
+[Unit]
+Description=Check IPTV DHCP address and routes every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=iptv-network-watchdog.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload
+  ok '已写入 iptv-dhcp.service、iptv-spider drop-in 与 network watchdog'
+}
+
 seed_duid() {
   [ -n "$DHCP_DUID" ] || return 0
   local dir lease_file tmp
@@ -225,7 +359,27 @@ bring_up_eth1() {
   log "启动 $ETH1_IF DHCP（专网租约）"
   ip link set dev "$ETH1_IF" up 2>/dev/null || true
   rm -f "/run/iptv-lease-gw-$ETH1_IF" "/run/iptv-lease-state-$ETH1_IF"
-  ifup "$ETH1_IF" >/dev/null 2>&1 || true
+
+  # 升级旧节点时，ifupdown 可能仍留下一个 dhclient；先停服务并清掉同接口的
+  # 遗留进程，确保只由 iptv-dhcp.service 管理租约。
+  systemctl stop iptv-dhcp.service 2>/dev/null || true
+  legacy_pids=$(pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${ETH1_IF}$" 2>/dev/null || true)
+  if [ -n "$legacy_pids" ]; then
+    kill -TERM $legacy_pids 2>/dev/null || true
+    for i in $(seq 1 5); do
+      pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${ETH1_IF}$" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${ETH1_IF}$" >/dev/null 2>&1 && \
+      kill -KILL $legacy_pids 2>/dev/null || true
+  fi
+
+  systemctl enable iptv-dhcp.service >/dev/null 2>&1
+  systemctl reset-failed iptv-dhcp.service 2>/dev/null || true
+  if ! systemctl restart iptv-dhcp.service; then
+    journalctl -u iptv-dhcp.service -n 50 --no-pager >&2 || true
+    die "iptv-dhcp.service 启动失败"
+  fi
   LEASE_IP=''
   LEASE_GW=''
   for i in $(seq 1 45); do
@@ -248,6 +402,7 @@ bring_up_eth1() {
   ok "$ETH1_IF = $LEASE_IP/16，租约网关 $LEASE_GW"
   ip route get 222.68.208.73 >/dev/null 2>&1 || true
   ip route | grep -E "(${IPTV_NETS// /|})" | sed 's/^/    路由: /' || true
+  ok 'iptv-dhcp.service 已启用'
 }
 
 # ---------------------------------------------------------------- app pkg ---
@@ -523,10 +678,13 @@ collect_stb_manual() {
 }
 
 # ---------------------------------------------------------------- main -----
-log "IPTV Spider DHCP-direct 引导开始（answers=$ANSWERS_FILE）"
-
-if [ -f "$APP_DIR/config.yaml" ]; then
-  die "检测到已有安装 $APP_DIR/config.yaml。本脚本面向全新 CT；升级请用原 install.sh。"
+if [ "$NETWORK_ONLY" -eq 1 ]; then
+  log "IPTV Spider 网络层修复/升级开始（interface=$ETH1_IF）"
+else
+  log "IPTV Spider DHCP-direct 引导开始（answers=$ANSWERS_FILE）"
+  if [ -f "$APP_DIR/config.yaml" ]; then
+    die "检测到已有安装 $APP_DIR/config.yaml。全新安装已停止；已有节点请用 --network-only 修复网络层。"
+  fi
 fi
 
 command -v apt-get >/dev/null 2>&1 || die '仅支持 Debian/Ubuntu（apt-get）。'
@@ -537,6 +695,27 @@ apt-get install -y --no-install-recommends ca-certificates curl openssh-client m
 
 write_interfaces
 write_hooks
+write_network_units
+systemctl reset-failed networking.service 2>/dev/null || true
+systemctl start networking.service >/dev/null 2>&1 || true
+
+if [ "$NETWORK_ONLY" -eq 1 ]; then
+  bring_up_eth1
+  systemctl enable --now iptv-network-watchdog.timer >/dev/null 2>&1 || true
+  systemd-analyze verify /etc/systemd/system/iptv-dhcp.service /etc/systemd/system/iptv-network-watchdog.service /etc/systemd/system/iptv-network-watchdog.timer >/dev/null
+  cat <<EOF
+
+================ 网络层修复完成 ================
+  接口：$ETH1_IF = $LEASE_IP/16（网关 $LEASE_GW）
+  服务：iptv-dhcp.service（启用，DHCP 前台运行）
+  监控：iptv-network-watchdog.timer（每 2 分钟检查地址/路由）
+  应用：未改动 config.yaml、数据库和 iptv-spider 程序
+  说明：networking.service 不再管理 $ETH1_IF，不会阻塞系统启动
+===============================================
+EOF
+  exit 0
+fi
+
 seed_duid
 bring_up_eth1
 ensure_pkg
@@ -563,6 +742,7 @@ for i in $(seq 1 10); do
   sleep 1
 done
 systemctl is-active --quiet iptv-spider || die 'iptv-spider 启动失败。日志：journalctl -u iptv-spider -n 100 --no-pager'
+systemctl enable --now iptv-network-watchdog.timer >/dev/null 2>&1 || true
 ok 'iptv-spider 运行中'
 
 wait_epg || true

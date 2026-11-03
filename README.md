@@ -33,7 +33,7 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
 
 | 概念 | 取值 | 出现位置 |
 |---|---|---|
-| 仓库 tag | `v0.3.9`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
+| 仓库 tag | `v0.3.10`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
 | 应用版本 | `1.3.0`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
 
 `install-dhcp.conf` 里：`VERSION` = 应用版本（决定资产文件名），`REPO_TAG` = 本仓库
@@ -46,7 +46,7 @@ Release 标签（决定资产所在路径）。
 `STB_MODE=capture` 需实体机顶盒可断电上电。
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.9/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.10/install.sh)
 ```
 
 - 无参数=交互向导；按提示选择机顶盒参数获取方式（RouterOS 抓包 / 手工）。
@@ -55,6 +55,30 @@ bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pv
 - 安装完成会显示：TiviMate `http://<管理IP>:8888/tv.m3u`、IPTV#
   `http://<管理IP>:8888/iptvsharp.m3u`、EPG `http://<管理IP>:8888/api/epg?daysAgo=7`。
 - CT 内 `iptv-spider-status` 会显示同样三个链接；管理菜单 `iptv-spider`。
+
+## 网络层结构（v0.3.10+）
+
+`eth1` 在 `/etc/network/interfaces` 中只保留 `inet manual`，不再由 Debian 的
+`networking.service` 等待 DHCP。专网租约由独立的 `iptv-dhcp.service` 前台运行
+`dhclient` 管理；`iptv-spider.service` 通过 drop-in 依赖该服务。DHCP hook 在 IP
+变化时用 `systemctl --no-block restart iptv-spider`，避免重启动作反向卡住网络启动。
+
+`iptv-network-watchdog.timer` 每 2 分钟检查 `eth1` 地址和三条专网路由；异常时重启
+`iptv-dhcp.service`。这样不会再出现“本地 m3u/EPG 有缓存返回 200，但上游认证、
+实时 EPG 和回看全部不可用”的静默故障。
+
+### 已有节点升级网络层
+
+已有安装无需重建 CT，可在 CT 内执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.10/install-dhcp.sh \
+  -o /root/install-dhcp-v0.3.10.sh
+bash /root/install-dhcp-v0.3.10.sh --network-only
+```
+
+该模式只更新 `/etc/network/interfaces`、DHCP hook、systemd 单元和 watchdog，
+不改 `config.yaml`、数据库或应用文件。
 
 ## 自动更新（已装节点）
 
@@ -91,10 +115,14 @@ iptv-spider-update --status     # 本机版本 + 最近检测结果
    `pve-iptv-dhcp-create.sh` 的 answer 模板（`VERSION`/`REPO_TAG`）、
    `app/install-oneclick.sh` 与 `app/pve-iptv-prep-oneclick.sh`（同上）、
    `app/tests/installer_static_test.sh`、`docs/`。
-4. `app/tests/installer_static_test.sh` 自检通过后，打 tag（`vX.Y.Z`）并推 main。
+4. `app/tests/installer_static_test.sh` 与 `tests/install-dhcp-static-test.sh` 自检
+   通过后，打 tag（`vX.Y.Z`）并推 main。
 5. `./build-release.sh <tag>` 生成安装件资产（在 tag 对应的提交上运行）。
 6. 建 Release，上传两个资产：`iptv-spider-pve-<tag>.tar.gz`(+`.sha256`，安装件）与
    `iptv-spider-app-<appver>-linux-amd64.tar.gz`(+`.sha256`，应用包）。
+
+仅安装器变更、应用源码未变时，保持 `app/VERSION` 不变，并在 Release 中复用同版本
+应用资产；应用包内的独立安装脚本可继续指向该应用版本首次发布时的仓库 tag。
 
 应用运行细节、RouterOS 抓包说明、配置项见 `app/README_CN.md`。
 
