@@ -84,7 +84,7 @@ CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
 VERSION=${VERSION:-1.3.0}                # 应用版本：决定发行资产文件名
-REPO_TAG=${REPO_TAG:-v0.3.10}            # 本仓库 Release 标签：决定资产所在路径
+REPO_TAG=${REPO_TAG:-v0.3.11}            # 本仓库 Release 标签：决定资产所在路径
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 # 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
 PKG_TMPDIR=''
@@ -252,10 +252,12 @@ RequiresMountsFor=/run
 [Service]
 Type=simple
 ExecStartPre=/sbin/ip link set dev $ETH1_IF up
+ExecStartPre=-/sbin/ip -4 addr flush dev $ETH1_IF scope global
 ExecStart=/sbin/dhclient -4 -d -v $ETH1_IF
 Restart=always
 RestartSec=5
 KillMode=process
+ExecStopPost=-/sbin/ip -4 addr flush dev $ETH1_IF scope global
 TimeoutStopSec=10
 
 [Install]
@@ -274,6 +276,9 @@ set -u
 
 IFACE=__IPTV_IFACE__
 IPTV_NETS='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
+STAMP=/run/iptv-watchdog.last-restart
+MIN_INTERVAL=300
+
 ipv4="$(ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null | awk 'NR==1 {sub(/\/.*/, "", $4); print $4}')"
 missing=''
 
@@ -281,21 +286,31 @@ for net in $IPTV_NETS; do
 	ip route show "$net" 2>/dev/null | grep -q "dev $IFACE" || missing="$missing $net"
 done
 
-restart_dhcp=0
-if ! systemctl is-active --quiet iptv-dhcp.service; then
-	restart_dhcp=1
-elif ! pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${IFACE}$" >/dev/null 2>&1; then
-	restart_dhcp=1
-elif [ -n "$ipv4" ]; then
+alive=0
+systemctl is-active --quiet iptv-dhcp.service && pgrep -f "^(/sbin/)?dhclient .*[[:space:]]${IFACE}$" >/dev/null 2>&1 && alive=1
+
+unhealthy=''
+[ "$alive" -eq 1 ] || unhealthy='dhclient not running'
+if [ -z "$ipv4" ]; then
+	unhealthy="${unhealthy:+$unhealthy; }no IPv4 on $IFACE"
+else
 	case "$ipv4" in
-	30.181.*) ;;
-	*) restart_dhcp=1 ;;
+	30.*) ;;
+	*) unhealthy="${unhealthy:+$unhealthy; }unexpected IPv4 $ipv4" ;;
 	esac
-	[ -n "$missing" ] && restart_dhcp=1
+	[ -n "$missing" ] && unhealthy="${unhealthy:+$unhealthy; }missing routes:${missing}"
 fi
 
-if [ "$restart_dhcp" -eq 1 ]; then
-	logger -t iptv-watchdog "unhealthy: ip=${ipv4:-none} missing_routes=${missing:-none}; restarting iptv-dhcp"
+if [ -n "$unhealthy" ]; then
+	now=$(date +%s)
+	last=0
+	[ -f "$STAMP" ] && last=$(cat "$STAMP" 2>/dev/null || echo 0)
+	if [ "$alive" -eq 1 ] && [ $((now - last)) -lt "$MIN_INTERVAL" ]; then
+		logger -t iptv-watchdog "unhealthy: $unhealthy; cooldown $((MIN_INTERVAL - (now - last)))s"
+		exit 0
+	fi
+	logger -t iptv-watchdog "unhealthy: $unhealthy; restarting iptv-dhcp"
+	echo "$now" > "$STAMP"
 	systemctl restart iptv-dhcp.service
 	exit 0
 fi

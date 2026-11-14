@@ -19,14 +19,16 @@ grep -q 'systemctl --no-block restart iptv-spider' "$INSTALLER"
 grep -q 'Before=iptv-spider.service' "$INSTALLER"
 grep -q 'Wants=iptv-dhcp.service' "$INSTALLER"
 grep -q 'After=iptv-dhcp.service' "$INSTALLER"
-grep -q 'REPO_TAG=${REPO_TAG:-v0.3.10}' "$INSTALLER"
-grep -q 'REPO_TAG=v0.3.10' "$ROOT/install-dhcp.conf.example"
-grep -q 'REPO_TAG=v0.3.10' "$ROOT/pve-iptv-dhcp-create.sh"
-grep -q 'v0.3.10' "$ROOT/README.md"
-grep -q 'v0.3.10' "$ROOT/docs/routeros-iptv-guide-jeffz.md"
+grep -q 'ExecStartPre=-/sbin/ip -4 addr flush dev' "$INSTALLER"
+grep -q 'ExecStopPost=-/sbin/ip -4 addr flush dev' "$INSTALLER"
+grep -q 'REPO_TAG=${REPO_TAG:-v0.3.11}' "$INSTALLER"
+grep -q 'REPO_TAG=v0.3.11' "$ROOT/install-dhcp.conf.example"
+grep -q 'REPO_TAG=v0.3.11' "$ROOT/pve-iptv-dhcp-create.sh"
+grep -q 'v0.3.11' "$ROOT/README.md"
+grep -q 'v0.3.11' "$ROOT/docs/routeros-iptv-guide-jeffz.md"
 
 test "$(cat "$ROOT/app/VERSION")" = '1.3.0'
-test "$(sed -n 's/^VERSION=${IPTV_SPIDER_PVE_VERSION:-\(v[0-9.]*\)}$/\1/p' "$ROOT/install.sh")" = 'v0.3.10'
+test "$(sed -n 's/^VERSION=${IPTV_SPIDER_PVE_VERSION:-\(v[0-9.]*\)}$/\1/p' "$ROOT/install.sh")" = 'v0.3.11'
 
 watchdog=$(mktemp)
 trap 'rm -f "$watchdog"' EXIT
@@ -39,5 +41,9 @@ test -s "$watchdog"
 bash -n "$watchdog"
 grep -q 'pgrep -f' "$watchdog"
 grep -q 'iptv-dhcp.service' "$watchdog"
+grep -q '30\.\*' "$watchdog"
+grep -q 'no IPv4 on' "$watchdog"
+grep -q 'MIN_INTERVAL=300' "$watchdog"
+grep -q 'cooldown' "$watchdog"
 
 echo 'install-dhcp static checks passed'

@@ -33,7 +33,7 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
 
 | 概念 | 取值 | 出现位置 |
 |---|---|---|
-| 仓库 tag | `v0.3.10`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
+| 仓库 tag | `v0.3.11`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
 | 应用版本 | `1.3.0`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
 
 `install-dhcp.conf` 里：`VERSION` = 应用版本（决定资产文件名），`REPO_TAG` = 本仓库
@@ -46,7 +46,7 @@ Release 标签（决定资产所在路径）。
 `STB_MODE=capture` 需实体机顶盒可断电上电。
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.10/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.11/install.sh)
 ```
 
 - 无参数=交互向导；按提示选择机顶盒参数获取方式（RouterOS 抓包 / 手工）。
@@ -72,9 +72,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pv
 已有安装无需重建 CT，可在 CT 内执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.10/install-dhcp.sh \
-  -o /root/install-dhcp-v0.3.10.sh
-bash /root/install-dhcp-v0.3.10.sh --network-only
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.11/install-dhcp.sh \
+  -o /root/install-dhcp-v0.3.11.sh
+bash /root/install-dhcp-v0.3.11.sh --network-only
 ```
 
 该模式只更新 `/etc/network/interfaces`、DHCP hook、systemd 单元和 watchdog，
