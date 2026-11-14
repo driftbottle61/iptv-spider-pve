@@ -189,11 +189,12 @@ add dst-address=124.75.28.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
 特别是 `124.75.26.0/24`：缺少这条路由时，部分节目会先报 401/404 或长时间加载，
 重试后才可能播放。安装程序不会自动修改 RouterOS 路由。
 
-## 自动更新（应用版本）
+## 自动更新（应用 + 网络层）
 
 CT 内自带更新器 `iptv-spider-update`：查本仓库 Release 里最新的
 `iptv-spider-app-<版本>-linux-amd64.tar.gz`，与本机 `/opt/sh-iptv-spider/VERSION`
-比较，有新版本才下载安装。
+比较，有新版本才下载安装。同一次 Release 中若带 `iptv-spider-pve-<tag>.tar.gz`，
+更新器也会读取其 `install-dhcp.sh --network-only` 能力，检查网络层版本。
 
 ```bash
 iptv-spider-update              # 检测并更新（有新版本才动）
@@ -201,19 +202,28 @@ iptv-spider-update --check      # 只检测（有新版本时退出码 10）
 iptv-spider-update --dry-run    # 下载并校验，但不改动安装
 iptv-spider-update --status     # 本机版本 + 最近一次检测结果
 iptv-spider-update --version 1.2.4   # 切换到指定版本
+iptv-spider-update --network-check    # 只检查网络层是否有新版
+iptv-spider-update --network-update   # 立即应用最新网络层
 iptv-spider-update --disable-timer   # 关闭自动检测
 ```
 
 `iptv-spider-update --list` 会列出 Release 里所有可安装版本（标记当前版本）。
 也可以从管理菜单 `iptv-spider` 操作：「6 检查更新」（检测→确认→升级）、
-「7 自动更新设置」（自动安装 / 仅检测 / 关闭定时）、「8 手动升级」（列出全部版本，
-回车升级到最新，或输入版本号安装指定版本，可用于固定版本或回退）。
+「7 自动更新设置」（应用自动安装 / 仅检测 / 关闭定时，以及网络层 off/check/auto）、
+「8 手动升级」（列出全部版本，回车升级到最新，或输入版本号安装指定版本，可用于
+固定版本或回退）、「9 应用网络层更新」。
 更新过程与覆盖升级同样安全：
 
 - 只替换程序与脚本，**保留 `config.yaml`、数据库、`eth1` 专网配置和 RouterOS 同步配置**；
 - 必须通过 Release 的 `.sha256` 校验（缺校验文件时告警并继续）；
 - 更新前在安装目录旁留 `*.update-backup.<时间戳>` 完整备份，默认保留最近 3 份；
 - 新版本 5 秒内不能稳定运行则自动回滚到旧版本，并返回非 0 退出码。
+
+网络层更新与应用更新相互独立。应用更新失败会回滚应用；网络层更新失败只回滚网络
+配置，不会把已成功的应用版本降回去。应用网络层前会备份 `/etc/network/interfaces`、
+DHCP hooks、`iptv-dhcp.service`、watchdog 和版本标记到
+`/var/lib/iptv-spider/network-backup.<时间戳>.*`，默认保留最近 3 份；应用后必须
+通过 DHCP 服务、`eth1` IPv4 地址和三条专网路由健康检查，否则自动恢复。
 
 默认启用每日自动检测（`iptv-spider-update.timer`，开机后每天 04:30 前后，含
 最多 30 分钟随机偏移），配置在 `/etc/iptv-spider/update.conf`：
@@ -222,6 +232,9 @@ iptv-spider-update --disable-timer   # 关闭自动检测
 |---|---|
 | `AUTO_UPDATE=1` | 检测到新版本自动安装（默认） |
 | `AUTO_UPDATE=0` | 只检测并记录，等人工执行 `iptv-spider-update` |
+| `NETWORK_UPDATE=check` | 只检查网络层并提示（默认，不修改网络配置） |
+| `NETWORK_UPDATE=auto` | 检测到新网络层自动应用（带备份、健康检查和回滚） |
+| `NETWORK_UPDATE=off` | 不检查网络层 |
 | `KEEP_BACKUPS=3` | 保留的历史备份份数 |
 | `GITHUB_TOKEN` | 可选，GitHub API 限流时使用 |
 

@@ -83,8 +83,11 @@ ROUTER_IFACE=${ROUTER_IFACE:-ether3_lan}
 CAPTURE_SECONDS=${CAPTURE_SECONDS:-120}
 DHCP_DUID=${DHCP_DUID:-}
 INSTALL_SOURCE=${INSTALL_SOURCE:-auto}
-VERSION=${VERSION:-1.3.0}                # 应用版本：决定发行资产文件名
-REPO_TAG=${REPO_TAG:-v0.3.11}            # 本仓库 Release 标签：决定资产所在路径
+VERSION=${VERSION:-1.3.1}                # 应用版本：决定发行资产文件名
+REPO_TAG=${REPO_TAG:-v0.3.12}            # 本仓库 Release 标签：决定资产所在路径
+NETWORK_LAYER_VERSION=${NETWORK_LAYER_VERSION:-v0.3.12}
+NETWORK_LAYER_FILE=${NETWORK_LAYER_FILE:-/etc/iptv-spider/network-layer.version}
+SKIP_APT=${SKIP_APT:-0}
 REPOSITORY=${REPOSITORY:-driftbottle61/iptv-spider-pve}
 # 发行包临时目录（脚本级，便于 EXIT trap 清理；见 ensure_pkg 注释）
 PKG_TMPDIR=''
@@ -351,6 +354,13 @@ EOF
 
   systemctl daemon-reload
   ok '已写入 iptv-dhcp.service、iptv-spider drop-in 与 network watchdog'
+}
+
+write_network_version() {
+  install -d -m 0755 "$(dirname -- "$NETWORK_LAYER_FILE")"
+  printf '%s\n' "$NETWORK_LAYER_VERSION" > "$NETWORK_LAYER_FILE"
+  chmod 0644 "$NETWORK_LAYER_FILE"
+  ok "网络层版本：$NETWORK_LAYER_VERSION（$NETWORK_LAYER_FILE）"
 }
 
 seed_duid() {
@@ -702,15 +712,23 @@ else
   fi
 fi
 
-command -v apt-get >/dev/null 2>&1 || die '仅支持 Debian/Ubuntu（apt-get）。'
-export DEBIAN_FRONTEND=noninteractive
-log '安装系统依赖'
-apt-get update -qq
-apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client isc-dhcp-client ifupdown iproute2
+if [ "$SKIP_APT" = 1 ]; then
+  for cmd in ip dhclient systemctl ifup; do
+    command -v "$cmd" >/dev/null 2>&1 || die "SKIP_APT=1 但缺少命令：$cmd"
+  done
+  log 'SKIP_APT=1：跳过系统依赖安装'
+else
+  command -v apt-get >/dev/null 2>&1 || die '仅支持 Debian/Ubuntu（apt-get）。'
+  export DEBIAN_FRONTEND=noninteractive
+  log '安装系统依赖'
+  apt-get update -qq
+  apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client isc-dhcp-client ifupdown iproute2
+fi
 
 write_interfaces
 write_hooks
 write_network_units
+write_network_version
 systemctl reset-failed networking.service 2>/dev/null || true
 systemctl start networking.service >/dev/null 2>&1 || true
 

@@ -49,8 +49,12 @@ http_check() {
 }
 
 version=$(cat "$APP_DIR/VERSION" 2>/dev/null || printf '未知')
+network_layer_file=/etc/iptv-spider/network-layer.version
+network_version=$(cat "$network_layer_file" 2>/dev/null | head -n 1 || true)
+network_version=${network_version:-未知（旧版安装器）}
 update_state=/var/lib/iptv-spider/update-state
 update_available=''
+network_update_available=''
 update_checked=''
 newer_available() {
   local cur=$1 avail=$2
@@ -59,6 +63,7 @@ newer_available() {
 }
 if [ -r "$update_state" ]; then
   update_available=$(sed -n 's/^available_version=//p' "$update_state" | head -n 1)
+  network_update_available=$(sed -n 's/^network_available_version=//p' "$update_state" | head -n 1)
   update_checked=$(sed -n 's/^checked_at=//p' "$update_state" | head -n 1)
 fi
 service_state=$(systemctl is-active iptv-spider.service 2>/dev/null || true)
@@ -77,10 +82,16 @@ listen_addr=$(ss -lnt 2>/dev/null | awk -v suffix=":$port" 'length($4)>=length(s
 echo 'IPTV Spider 运行状态'
 echo '------------------------------------------------------------'
 echo "  软件版本：$version"
+echo "  网络层版本：$network_version"
 if [ -n "$update_checked" ]; then
   if newer_available "$version" "$update_available"; then
     echo "  更新检测：$update_checked 发现新版本 $update_available（执行 iptv-spider-update 更新）"
-  else
+  fi
+  if newer_available "$network_version" "$network_update_available"; then
+    echo "  更新检测：$update_checked 发现新网络层 $network_update_available（执行 iptv-spider-update --network-update）"
+  fi
+  if ! newer_available "$version" "$update_available" && \
+     ! newer_available "$network_version" "$network_update_available"; then
     echo "  更新检测：$update_checked 已是最新"
   fi
 elif [ -x /usr/local/sbin/iptv-spider-update ]; then

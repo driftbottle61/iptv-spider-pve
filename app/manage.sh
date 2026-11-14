@@ -149,9 +149,11 @@ manual_upgrade_menu() {
 }
 
 auto_update_menu() {
-  local current timer_state choice answer
+  local current current_network timer_state choice answer
   current=$(sed -n 's/^AUTO_UPDATE=\([0-9][0-9]*\).*/\1/p' "$UPDATE_CONF" 2>/dev/null | tail -n 1)
   current=${current:-1}
+  current_network=$(sed -n 's/^NETWORK_UPDATE=//p' "$UPDATE_CONF" 2>/dev/null | tail -n 1)
+  current_network=${current_network:-check}
   if systemctl is-enabled --quiet iptv-spider-update.timer 2>/dev/null; then
     timer_state='已启用'
   else
@@ -165,13 +167,21 @@ auto_update_menu() {
   else
     echo '  检测到新版：仅记录，等人工执行更新'
   fi
+  case "$current_network" in
+    auto) echo '  网络层更新：自动应用（带备份、健康检查与回滚）' ;;
+    off) echo '  网络层更新：不检查' ;;
+    *) echo '  网络层更新：仅检查并提示' ;;
+  esac
   echo '------------------------------------------------------------'
   echo '  1、开启自动更新（每天检测，检测到新版自动安装）'
   echo '  2、仅自动检测（不自动安装，新版在状态里提示）'
   echo '  3、关闭定时检测'
+  echo '  4、网络层：仅检查并提示（推荐）'
+  echo '  5、网络层：检测到新版自动应用'
+  echo '  6、网络层：不检查'
   echo '  0、返回'
   echo '------------------------------------------------------------'
-  read -r -p '请选择 [0-3]：' choice
+  read -r -p '请选择 [0-6]：' choice
   case "$choice" in
     1|2)
       install -d -m 0755 /etc/iptv-spider
@@ -193,9 +203,49 @@ auto_update_menu() {
       systemctl disable --now iptv-spider-update.timer >/dev/null 2>&1 || true
       echo '已关闭定时检测；仍可随时用菜单里的“检查更新”手动更新。'
       ;;
+    4|5|6)
+      install -d -m 0755 /etc/iptv-spider
+      [ -f "$UPDATE_CONF" ] || cp -a "$APP_DIR/update.conf.example" "$UPDATE_CONF"
+      case "$choice" in
+        4) answer=check; answer_text='仅检查并提示' ;;
+        5) answer=auto; answer_text='检测到新版自动应用（带备份、健康检查与回滚）' ;;
+        6) answer=off; answer_text='不检查' ;;
+      esac
+      if grep -q '^NETWORK_UPDATE=' "$UPDATE_CONF"; then
+        sed -i "s/^NETWORK_UPDATE=.*/NETWORK_UPDATE=$answer/" "$UPDATE_CONF"
+      else
+        printf 'NETWORK_UPDATE=%s\n' "$answer" >> "$UPDATE_CONF"
+      fi
+      echo "已设置网络层更新策略：$answer_text"
+      ;;
     0) ;;
-    *) echo '输入无效，请输入 0 到 3。' ;;
+    *) echo '输入无效，请输入 0 到 6。' ;;
   esac
+}
+
+network_upgrade_menu() {
+  local output rc confirm
+  if [ ! -x "$UPDATE_CMD" ]; then
+    echo '未找到更新命令，请先覆盖升级到含网络层更新功能的版本。'
+    return 1
+  fi
+  echo '正在检查网络层版本...'
+  output=$("$UPDATE_CMD" --network-check 2>&1)
+  rc=$?
+  printf '%s\n' "$output"
+  case "$rc" in
+    0) return 0 ;;
+    10) ;;
+    *) echo '网络层检查失败（网络或 GitHub 访问异常）。'; return 1 ;;
+  esac
+  read -r -p '是否立即应用网络层更新？[y/N]：' confirm
+  [[ "$confirm" =~ ^[Yy]$ ]] || { echo '已取消。'; return 0; }
+  if "$UPDATE_CMD" --network-update; then
+    echo '网络层更新完成。'
+  else
+    echo '网络层更新失败；更新器已尝试回滚到更新前的网络配置。'
+    return 1
+  fi
 }
 
 restart_service() {
@@ -309,9 +359,10 @@ while :; do
   echo '  6、检查更新'
   echo '  7、自动更新设置'
   echo '  8、手动升级'
+  echo '  9、应用网络层更新'
   echo '  0、退出'
   echo '------------------------------------------------------------'
-  read -r -p '请选择 [0-8]：' choice
+  read -r -p '请选择 [0-9]：' choice
   case "$choice" in
     1) "$STATUS_CMD" || true ;;
     2) manual_fetch ;;
@@ -327,10 +378,11 @@ while :; do
     6) update_menu ;;
     7) auto_update_menu ;;
     8) manual_upgrade_menu ;;
+    9) network_upgrade_menu ;;
     0)
       echo '已退出管理菜单，IPTV Spider 服务保持运行。'
       exit 0
       ;;
-    *) echo '输入无效，请输入 0 到 8。' ;;
+    *) echo '输入无效，请输入 0 到 9。' ;;
   esac
 done

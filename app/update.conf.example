@@ -4,6 +4,12 @@
 # AUTO_UPDATE=0：只检测并记录结果，等人工执行 iptv-spider-update
 AUTO_UPDATE=1
 
+# 网络层更新策略：
+# off   = 不检查网络层
+# check = 只检查并提示（默认，不会自动修改 /etc/network 与 DHCP 服务）
+# auto  = 检测到新网络层后自动应用（带备份、健康检查与失败回滚）
+NETWORK_UPDATE=check
+
 # 更新源仓库（一般不用改）
 REPO=driftbottle61/iptv-spider-pve
 

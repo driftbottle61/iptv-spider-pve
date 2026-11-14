@@ -30,12 +30,22 @@ done
 url=${args[${#args[@]}-1]}
 case "$url" in
   *api.github.com*) src=$FAKE_API_JSON ;;
+  *iptv-spider-pve-*.tar.gz.sha256) src=$FAKE_NET_ARCHIVE.sha256 ;;
+  *iptv-spider-pve-*.tar.gz) src=$FAKE_NET_ARCHIVE ;;
   *.sha256) src=$FAKE_ARCHIVE.sha256 ;;
   *.tar.gz) src=$FAKE_ARCHIVE ;;
   *) echo "假 curl 不认识：$url" >&2; exit 22 ;;
 esac
 # 用 cp/cat 而非 $(cat …)：应用包是二进制，命令替换会吃掉 NUL 字节
 if [ -n "$out" ]; then cp -f "$src" "$out"; else cat "$src"; fi
+EOF
+
+cat > "$TMP/bin/ip" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"addr show"*) echo '2: eth1    inet 30.182.1.2/16 scope global eth1' ;;
+  *"route show"*) echo '218.83.0.0/16 via 30.182.0.1 dev eth1' ;;
+esac
 EOF
 
 # ---- 假 systemctl ----
@@ -47,7 +57,7 @@ for arg in "$@"; do
 done
 exit 0
 EOF
-chmod +x "$TMP/bin/curl" "$TMP/bin/systemctl"
+chmod +x "$TMP/bin/curl" "$TMP/bin/ip" "$TMP/bin/systemctl"
 export PATH="$TMP/bin:$PATH"
 
 # ---- 造发行包（顶层 app/） ----
@@ -70,8 +80,29 @@ make_package() {
 make_package "$NEW_VERSION" "$TMP/iptv-spider-app-${NEW_VERSION}-linux-amd64.tar.gz"
 export FAKE_ARCHIVE="$TMP/iptv-spider-app-${NEW_VERSION}-linux-amd64.tar.gz"
 
+make_net_package() {
+  local tag=$1 out=$2 work
+  work=$(mktemp -d "$TMP/netpkg.XXXXXX")
+  cat > "$work/install-dhcp.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$FAKE_NET_LOG"
+install -d -m 0755 "$(dirname -- "$NETWORK_LAYER_FILE")"
+printf '%s\n' "$NETWORK_LAYER_VERSION" > "$NETWORK_LAYER_FILE"
+[ "${FAKE_INSTALL_FAIL:-0}" != 1 ] || exit 1
+EOF
+  chmod 0755 "$work/install-dhcp.sh"
+  tar -C "$work" -czf "$out" install-dhcp.sh
+  rm -rf "$work"
+  (cd "$(dirname "$out")" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+}
+
+NET_TAG=v0.3.12
+make_net_package "$NET_TAG" "$TMP/iptv-spider-pve-${NET_TAG}.tar.gz"
+export FAKE_NET_ARCHIVE="$TMP/iptv-spider-pve-${NET_TAG}.tar.gz"
+
 write_api_json() {
-  local versions=$1 out=$2 ver
+  local versions=$1 out=$2 net_tag=${3:-} ver
   {
     printf '[\n  {"tag_name": "v9.9.9", "assets": [\n'
     local first=1
@@ -80,6 +111,10 @@ write_api_json() {
       first=0
       printf '    {"name": "iptv-spider-app-%s-linux-amd64.tar.gz", "browser_download_url": "https://github.com/driftbottle61/iptv-spider-pve/releases/download/v9.9.9/iptv-spider-app-%s-linux-amd64.tar.gz"}' "$ver" "$ver"
     done
+    if [ -n "$net_tag" ]; then
+      [ "$first" = 1 ] || printf ',\n'
+      printf '    {"name": "iptv-spider-pve-%s.tar.gz", "browser_download_url": "https://github.com/driftbottle61/iptv-spider-pve/releases/download/%s/iptv-spider-pve-%s.tar.gz"}' "$net_tag" "$net_tag" "$net_tag"
+    fi
     printf '\n  ]}\n]\n'
   } > "$out"
 }
@@ -87,10 +122,19 @@ write_api_json "$APP_VERSION $NEW_VERSION" "$TMP/api.json"
 export FAKE_API_JSON="$TMP/api.json"
 export FAKE_SYSTEMCTL_LOG="$TMP/systemctl.log"
 : > "$FAKE_SYSTEMCTL_LOG"
+export FAKE_NET_LOG="$TMP/net-installer.log"
+: > "$FAKE_NET_LOG"
 
 # ---- 假安装现场 ----
 APP_DIR="$TMP/opt/sh-iptv-spider"
 install -d -m 0755 "$APP_DIR" "$TMP/sbin" "$TMP/systemd" "$TMP/state"
+NET_ROOT="$TMP/net-root"
+NETWORK_LAYER_FILE="$NET_ROOT/etc/iptv-spider/network-layer.version"
+NETWORK_BACKUP_PATHS="$NET_ROOT/etc/network/interfaces $NET_ROOT/etc/dhcp/dhclient-exit-hooks.d/99-iptv-routes $NETWORK_LAYER_FILE"
+install -d -m 0755 "$NET_ROOT/etc/network" "$NET_ROOT/etc/dhcp/dhclient-exit-hooks.d" "$(dirname "$NETWORK_LAYER_FILE")"
+printf 'auto lo\niface lo inet loopback\n' > "$NET_ROOT/etc/network/interfaces"
+printf '#!/bin/sh\n# old hook\n' > "$NET_ROOT/etc/dhcp/dhclient-exit-hooks.d/99-iptv-routes"
+printf '%s\n' "$NET_TAG" > "$NETWORK_LAYER_FILE"
 printf '%s\n' "$APP_VERSION" > "$APP_DIR/VERSION"
 printf 'mysql:\n  db-name: %s\n' "'iptv'" > "$APP_DIR/config.yaml"
 printf 'KEEP-ME\n' >> "$APP_DIR/config.yaml"
@@ -102,6 +146,9 @@ cp "$ROOT/update.conf.example" "$APP_DIR/"
 run_update() {
   IPTV_SPIDER_DIR="$APP_DIR" SBIN_DIR="$TMP/sbin" SYSTEMD_DIR="$TMP/systemd" \
   STATE_DIR="$TMP/state" UPDATE_CONF="$TMP/update.conf" STABLE_POLL=0 \
+  NETWORK_LAYER_FILE="$NETWORK_LAYER_FILE" NETWORK_BACKUP_PATHS="$NETWORK_BACKUP_PATHS" \
+  NETWORK_LOCK="$TMP/network.lock" NETWORK_HEALTH_RETRIES=1 NETWORK_HEALTH_POLL=0 \
+  NETWORK_ROUTES='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16' NETWORK_ETH1_IF=eth1 \
     bash "$ROOT/update.sh" "$@"
 }
 
@@ -233,5 +280,78 @@ grep -q 'result=failed' "$TMP/state/update-state" || fail '状态未记录 faile
 [ "$(grep -c 'enable --now iptv-spider-update.timer' "$FAKE_SYSTEMCTL_LOG")" = "$enable_count_before" ] \
   || fail '已存在 update.conf 时不应重复启用定时器'
 echo 'ok: 启动失败自动回滚'
+
+# ---- 6) 网络层：--network-check 检测到新版退 10 ----
+write_api_json "$NEW_VERSION" "$TMP/api-net.json" "$NET_TAG"
+export FAKE_API_JSON="$TMP/api-net.json"
+printf 'AUTO_UPDATE=1\nNETWORK_UPDATE=check\n' > "$TMP/update.conf"
+printf 'v0.3.11\n' > "$NETWORK_LAYER_FILE"
+set +e
+out=$(run_update --network-check 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 10 ] || fail "网络层有新版本时 --network-check 应退 10，实际 $rc：$out"
+printf '%s' "$out" | grep -q '发现新网络层：v0.3.11 → v0.3.12' || fail "网络层检查提示异常：$out"
+grep -q 'result=network-update-available' "$TMP/state/update-state" || fail '未记录网络层可更新状态'
+echo 'ok: --network-check 检测新网络层'
+
+# ---- 7) 网络层已最新：--network-check 退 0 ----
+printf '%s\n' "$NET_TAG" > "$NETWORK_LAYER_FILE"
+set +e
+out=$(run_update --network-check 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "网络层已最新时 --network-check 应退 0，实际 $rc：$out"
+printf '%s' "$out" | grep -q '网络层已是最新版本' || fail "网络层最新提示异常：$out"
+echo 'ok: --network-check 已最新'
+
+# ---- 8) NETWORK_UPDATE=check：--auto 只提示，不改网络层 ----
+printf 'v0.3.11\n' > "$NETWORK_LAYER_FILE"
+: > "$FAKE_NET_LOG"
+printf 'AUTO_UPDATE=1\nNETWORK_UPDATE=check\n' > "$TMP/update.conf"
+set +e
+out=$(run_update --auto 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "NETWORK_UPDATE=check 时 --auto 应退 0，实际 $rc：$out"
+printf '%s' "$out" | grep -q '策略为 check，未自动应用' || fail "未提示网络层未自动应用：$out"
+[ "$(cat "$NETWORK_LAYER_FILE")" = 'v0.3.11' ] || fail 'check 策略不应修改网络层版本'
+[ ! -s "$FAKE_NET_LOG" ] || fail 'check 策略不应执行网络层安装脚本'
+grep -q 'network_available_version=v0.3.12' "$TMP/state/update-state" || fail '未记录网络层可用版本'
+echo 'ok: NETWORK_UPDATE=check 只提示不应用'
+
+# ---- 9) NETWORK_UPDATE=auto：自动应用并写版本标记 ----
+printf 'v0.3.11\n' > "$NETWORK_LAYER_FILE"
+: > "$FAKE_NET_LOG"
+printf 'AUTO_UPDATE=1\nNETWORK_UPDATE=auto\n' > "$TMP/update.conf"
+set +e
+out=$(run_update --auto 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "网络层自动更新失败（rc=$rc）：$out"
+[ "$(cat "$NETWORK_LAYER_FILE")" = "$NET_TAG" ] || fail '网络层版本标记未更新'
+grep -q -- '--network-only' "$FAKE_NET_LOG" || fail '未执行网络层安装脚本 --network-only'
+grep -q 'network_layer_version=v0.3.12' "$TMP/state/update-state" || fail '状态未记录新网络层版本'
+grep -q 'result=updated' "$TMP/state/update-state" || fail '网络层更新后状态不是 updated'
+ls -d "$TMP/state"/network-backup.* >/dev/null 2>&1 || fail '网络层更新未生成备份'
+echo 'ok: NETWORK_UPDATE=auto 自动应用网络层'
+
+# ---- 10) 网络层安装失败：回滚配置，应用版本不受影响 ----
+printf 'v0.3.11\n' > "$NETWORK_LAYER_FILE"
+: > "$FAKE_NET_LOG"
+export FAKE_INSTALL_FAIL=1
+set +e
+out=$(run_update --network-update 2>&1)
+rc=$?
+set -e
+unset FAKE_INSTALL_FAIL
+[ "$rc" -ne 0 ] || fail '网络层安装失败时应以非 0 退出'
+printf '%s' "$out" | grep -q '正在回滚' || fail "网络层失败未提示回滚：$out"
+[ "$(cat "$NETWORK_LAYER_FILE")" = 'v0.3.11' ] || fail '网络层失败后版本标记未回滚'
+[ "$(cat "$APP_DIR/VERSION")" = "$NEW_VERSION" ] || fail '网络层失败不应改动应用版本'
+grep -q '^auto lo$' "$NET_ROOT/etc/network/interfaces" || fail '网络层失败后 interfaces 未恢复'
+grep -q 'result=failed' "$TMP/state/update-state" || fail '网络层失败未写 failed 状态'
+[ ! -e "$TMP/network.lock" ] || fail '网络层失败后更新锁未清理'
+echo 'ok: 网络层失败自动回滚且不影响应用版本'
 
 echo 'update logic tests passed'

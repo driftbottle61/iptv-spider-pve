@@ -21,14 +21,18 @@ grep -q 'Wants=iptv-dhcp.service' "$INSTALLER"
 grep -q 'After=iptv-dhcp.service' "$INSTALLER"
 grep -q 'ExecStartPre=-/sbin/ip -4 addr flush dev' "$INSTALLER"
 grep -q 'ExecStopPost=-/sbin/ip -4 addr flush dev' "$INSTALLER"
-grep -q 'REPO_TAG=${REPO_TAG:-v0.3.11}' "$INSTALLER"
-grep -q 'REPO_TAG=v0.3.11' "$ROOT/install-dhcp.conf.example"
-grep -q 'REPO_TAG=v0.3.11' "$ROOT/pve-iptv-dhcp-create.sh"
-grep -q 'v0.3.11' "$ROOT/README.md"
-grep -q 'v0.3.11' "$ROOT/docs/routeros-iptv-guide-jeffz.md"
+grep -q 'REPO_TAG=${REPO_TAG:-v0.3.12}' "$INSTALLER"
+grep -q 'NETWORK_LAYER_VERSION=${NETWORK_LAYER_VERSION:-v0.3.12}' "$INSTALLER"
+grep -q 'network-layer.version' "$INSTALLER"
+grep -q 'write_network_version' "$INSTALLER"
+grep -q 'SKIP_APT=1' "$INSTALLER"
+grep -q 'REPO_TAG=v0.3.12' "$ROOT/install-dhcp.conf.example"
+grep -q 'REPO_TAG=v0.3.12' "$ROOT/pve-iptv-dhcp-create.sh"
+grep -q 'v0.3.12' "$ROOT/README.md"
+grep -q 'v0.3.12' "$ROOT/docs/routeros-iptv-guide-jeffz.md"
 
-test "$(cat "$ROOT/app/VERSION")" = '1.3.0'
-test "$(sed -n 's/^VERSION=${IPTV_SPIDER_PVE_VERSION:-\(v[0-9.]*\)}$/\1/p' "$ROOT/install.sh")" = 'v0.3.11'
+test "$(cat "$ROOT/app/VERSION")" = '1.3.1'
+test "$(sed -n 's/^VERSION=${IPTV_SPIDER_PVE_VERSION:-\(v[0-9.]*\)}$/\1/p' "$ROOT/install.sh")" = 'v0.3.12'
 
 watchdog=$(mktemp)
 trap 'rm -f "$watchdog"' EXIT

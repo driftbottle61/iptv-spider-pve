@@ -33,8 +33,8 @@ RouterOS SNAT/静态路由（RouterOS 只做二层桥接 + IGMP 组播代理）�
 
 | 概念 | 取值 | 出现位置 |
 |---|---|---|
-| 仓库 tag | `v0.3.11`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
-| 应用版本 | `1.3.0`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
+| 仓库 tag | `v0.3.12`（安装器/整包版本） | Release 标签、`install.sh` 的 `VERSION` |
+| 应用版本 | `1.3.1`（`app/VERSION`） | 应用资产文件名、`install-dhcp.conf` 的 `VERSION` |
 
 `install-dhcp.conf` 里：`VERSION` = 应用版本（决定资产文件名），`REPO_TAG` = 本仓库
 Release 标签（决定资产所在路径）。
@@ -46,7 +46,7 @@ Release 标签（决定资产所在路径）。
 `STB_MODE=capture` 需实体机顶盒可断电上电。
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.11/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.12/install.sh)
 ```
 
 - 无参数=交互向导；按提示选择机顶盒参数获取方式（RouterOS 抓包 / 手工）。
@@ -72,9 +72,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pv
 已有安装无需重建 CT，可在 CT 内执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.11/install-dhcp.sh \
-  -o /root/install-dhcp-v0.3.11.sh
-bash /root/install-dhcp-v0.3.11.sh --network-only
+curl -fsSL https://raw.githubusercontent.com/driftbottle61/iptv-spider-pve/v0.3.12/install-dhcp.sh \
+  -o /root/install-dhcp-v0.3.12.sh
+bash /root/install-dhcp-v0.3.12.sh --network-only
 ```
 
 该模式只更新 `/etc/network/interfaces`、DHCP hook、systemd 单元和 watchdog，
@@ -82,20 +82,26 @@ bash /root/install-dhcp-v0.3.11.sh --network-only
 
 ## 自动更新（已装节点）
 
-CT 内自带更新器，默认每天自动检测本仓库 Release 的应用包，有新版本就自动安装：
+CT 内自带更新器，默认每天自动检测本仓库 Release 的应用包，有新版本就自动安装；
+同时可检查网络层（`install-dhcp.sh --network-only`）是否有新版：
 
 ```bash
 iptv-spider-update              # 检测并更新（有新版本才动）
 iptv-spider-update --check      # 只检测（有新版本时退出码 10）
 iptv-spider-update --status     # 本机版本 + 最近检测结果
+iptv-spider-update --network-check    # 只检查网络层
+iptv-spider-update --network-update   # 应用最新网络层（带备份/健康检查/回滚）
 ```
 
-管理菜单 `iptv-spider` 的 6/7/8 项分别是「检查更新」「自动更新设置」「手动升级」：
+管理菜单 `iptv-spider` 的 6/7/8/9 项分别是「检查更新」「自动更新设置」「手动升级」
+「应用网络层更新」：
 后者会列出 Release 里所有可安装版本（标记当前版本），回车升级到最新，也可输入
 版本号安装指定版本（固定版本或回退）。
-更新只替换程序与脚本，保留 `config.yaml`、数据库、`eth1` 专网配置；先做 SHA256
-校验，再备份到 `*.update-backup.<时间戳>`（保留最近 3 份），启动不稳定则自动回滚。
-开关与说明见 `/etc/iptv-spider/update.conf` 与 `app/README_CN.md` 的「自动更新」。
+应用更新只替换程序与脚本，保留 `config.yaml`、数据库、`eth1` 专网配置；先做
+SHA256 校验，再备份到 `*.update-backup.<时间戳>`（保留最近 3 份），启动不稳定则
+自动回滚。网络层更新默认只提示（`NETWORK_UPDATE=check`）；设置为 `auto` 后才自动
+应用，并会先备份网络配置文件，应用后检查 DHCP 服务、`eth1` 地址和专网路由，失败
+自动回滚。开关与说明见 `/etc/iptv-spider/update.conf` 与 `app/README_CN.md`。
 
 ## 自包含说明
 
